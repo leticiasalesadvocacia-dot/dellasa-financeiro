@@ -1743,12 +1743,13 @@ async function converterParaReceber(id){
 
 // ===== EMPRÉSTIMOS =====
 const EMPRESTIMOS_DATA = [
-  { id:'cred-crea',    nome:'Empréstimo Cred Crea',          instituicao:'Cred Crea',  keyword:'cred crea',   valor_total:60000,  total_parcelas:48, parcela_valor:2073.89 },
-  { id:'sicredi-reneg',nome:'Empréstimo Sicredi Renegociação',instituicao:'Sicredi',   keyword:'sicredi',     valor_total:150000, total_parcelas:48, parcela_valor:5022.00 },
-  { id:'cresol',       nome:'Empréstimo Cresol',              instituicao:'Cresol',    keyword:'cresol',      valor_total:50000,  total_parcelas:50, parcela_valor:2000.00 },
-  { id:'rotativo',     nome:'Empréstimo Rotativo Sicredi',    instituicao:'Sicredi',   keyword:'rotativo',    valor_total:60000,  total_parcelas:60, parcela_valor:1703.90 },
-  { id:'hilo',         nome:'Empréstimo Hilo',                instituicao:'Hilo',      keyword:'hilo',        valor_total:50000,  total_parcelas:30, parcela_valor:2500.00 },
-  { id:'bb-fgi',       nome:'Empréstimo BB FGI',              instituicao:'BB',        keyword:'fgi',         valor_total:100000, total_parcelas:30, parcela_valor:6000.00 },
+  // parcelas_pagas: quantas já foram pagas (usamos para calcular saldo devedor real)
+  { id:'cred-crea',    nome:'Empréstimo Cred Crea',           instituicao:'Cred Crea', keyword:'cred crea',  total_parcelas:48, parcelas_pagas:33, parcela_valor:2073.89 },
+  { id:'sicredi-reneg',nome:'Empréstimo Sicredi Renegociação',instituicao:'Sicredi',   keyword:'sicredi - renegociação', total_parcelas:48, parcelas_pagas:17, parcela_valor:5022.00, parcial_pago:493.23 },
+  { id:'cresol',       nome:'Empréstimo Cresol',              instituicao:'Cresol',    keyword:'cresol',     total_parcelas:57, parcelas_pagas:0,  parcela_valor:2000.00 },
+  { id:'rotativo',     nome:'Empréstimo Rotativo Sicredi',    instituicao:'Sicredi',   keyword:'rotativo',   total_parcelas:60, parcelas_pagas:27, parcela_valor:1703.90 },
+  { id:'hilo',         nome:'Empréstimo Hilo',                instituicao:'Hilo',      keyword:'hilo',       total_parcelas:30, parcelas_pagas:7,  parcela_valor:2500.00 },
+  { id:'bb-fgi',       nome:'Empréstimo BB FGI',              instituicao:'BB',        keyword:'fgi',        total_parcelas:30, parcelas_pagas:0,  parcela_valor:6000.00 },
 ];
 
 // Modal novo empréstimo
@@ -1843,23 +1844,32 @@ async function renderEmprestimos() {
 
   // Calcula dados reais por empréstimo cruzando com lançamentos
   function calcEmp(emp) {
+    const hoje = new Date().toISOString().substring(0,10);
     const parcelas = all.filter(x =>
       x.tipo === 'pagar' &&
       x.cat === 'Empréstimo' &&
       (x.desc||'').toLowerCase().includes(emp.keyword.toLowerCase())
     );
-    const hoje = new Date().toISOString().substring(0,10);
-    const pagas = parcelas.filter(x => ['pago'].includes(x.status));
+    const pagas = parcelas.filter(x => x.status === 'pago');
     const parciais = parcelas.filter(x => x.status === 'parcial');
     const pendentes = parcelas.filter(x => ['pendente','vencido'].includes(x.status));
     const vencidas = parcelas.filter(x => x.status === 'vencido' || (x.status === 'pendente' && x.venc < hoje));
-    const totalPago = pagas.reduce((s,x) => s + x.valor, 0)
-                    + parciais.reduce((s,x) => s + (x.pago_parcial||0), 0);
+
+    // Saldo devedor = parcelas restantes × valor da parcela + parcela parcial restante
+    const parcelasRestantes = emp.total_parcelas - emp.parcelas_pagas;
+    const parcialRestante = emp.parcial_pago ? (emp.parcela_valor - emp.parcial_pago) : 0;
+    const saldoDevedor = Math.max(0, (parcelasRestantes * emp.parcela_valor) - parcialRestante);
+
+    // % pago baseado nas parcelas pagas declaradas
+    const pctPago = Math.min(100, (emp.parcelas_pagas / emp.total_parcelas) * 100);
+
+    // Total pago real pelo sistema (para exibição)
+    const totalPagoSistema = pagas.reduce((s,x) => s + x.valor, 0)
+                           + parciais.reduce((s,x) => s + (x.pago_parcial||0), 0);
+
     const totalPendente = pendentes.reduce((s,x) => s + x.valor, 0);
-    const saldoDevedor = Math.max(0, emp.valor_total - totalPago);
-    const pctPago = Math.min(100, (totalPago / emp.valor_total) * 100);
-    const proximaParcela = pendentes.sort((a,b) => a.venc > b.venc ? 1 : -1)[0];
-    return { parcelas, pagas, pendentes, vencidas, totalPago, totalPendente, saldoDevedor, pctPago, proximaParcela };
+    const proximaParcela = [...pendentes].sort((a,b) => a.venc > b.venc ? 1 : -1)[0];
+    return { parcelas, pagas, parciais, pendentes, vencidas, totalPagoSistema, totalPendente, saldoDevedor, pctPago, proximaParcela, parcelasRestantes };
   }
 
   const emps = EMPRESTIMOS_DATA.map(e => ({ ...e, calc: calcEmp(e) }));
@@ -1901,8 +1911,8 @@ async function renderEmprestimos() {
           <div style="font-weight:700;color:var(--text);font-size:14px">${fmt(emp.valor_total)}</div>
         </div>
         <div style="background:var(--surface2);border-radius:8px;padding:12px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Total pago</div>
-          <div style="font-weight:700;color:var(--accent);font-size:14px">${fmt(c.totalPago)}</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Total pago (sist.)</div>
+          <div style="font-weight:700;color:var(--accent);font-size:14px">${fmt(c.totalPagoSistema)}</div>
         </div>
         <div style="background:var(--surface2);border-radius:8px;padding:12px">
           <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Saldo devedor</div>
@@ -1915,8 +1925,8 @@ async function renderEmprestimos() {
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text3);margin-bottom:6px">
-          <span>${c.pagas.length} parcelas pagas</span>
-          <span>${c.pendentes.length} restantes · ${c.pctPago.toFixed(1)}% quitado</span>
+          <span>${emp.parcelas_pagas} parcelas pagas${emp.parcial_pago ? ' + 1 parcial' : ''}</span>
+          <span>${c.parcelasRestantes} restantes · ${c.pctPago.toFixed(1)}% quitado</span>
         </div>
         <div style="background:var(--surface2);border-radius:4px;height:8px;overflow:hidden">
           <div style="background:${statusColor};height:100%;width:${c.pctPago.toFixed(1)}%;border-radius:4px;transition:width .3s"></div>
