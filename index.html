@@ -118,6 +118,60 @@ tbody td{padding:9px 12px;font-size:12px;}
 </head>
 <body>
 
+<!-- TELA DE LOGIN -->
+<div id="login-screen" style="
+  position:fixed;inset:0;z-index:9999;
+  background:#F5F4F0;
+  display:flex;align-items:center;justify-content:center;
+">
+  <div style="
+    background:#fff;border-radius:16px;padding:48px 40px;
+    box-shadow:0 4px 32px rgba(0,0,0,0.10);
+    width:100%;max-width:380px;text-align:center;
+  ">
+    <div style="margin-bottom:32px;">
+      <div style="font-size:22px;font-weight:700;color:#2A5C45;letter-spacing:.02em;">DellaSá</div>
+      <div style="font-size:12px;color:#888;letter-spacing:.08em;text-transform:uppercase;">Financeiro</div>
+    </div>
+    <div style="margin-bottom:16px;text-align:left;">
+      <label style="font-size:13px;color:#555;font-weight:600;">Senha</label>
+      <input id="login-senha" type="password" placeholder="Digite a senha"
+        style="width:100%;margin-top:6px;padding:12px 14px;border:1.5px solid #ddd;border-radius:8px;font-size:15px;outline:none;box-sizing:border-box;"
+        onkeydown="if(event.key==='Enter') fazerLogin()"
+      />
+      <div id="login-erro" style="color:#C4411A;font-size:12px;margin-top:6px;display:none;">Senha incorreta. Tente novamente.</div>
+    </div>
+    <button onclick="fazerLogin()" style="
+      width:100%;padding:13px;background:#2A5C45;color:#fff;
+      border:none;border-radius:8px;font-size:15px;font-weight:600;
+      cursor:pointer;margin-top:8px;
+    ">Entrar</button>
+  </div>
+</div>
+
+<script>
+const SENHA_SISTEMA = 'dellasa2026';
+
+function fazerLogin() {
+  const senha = document.getElementById('login-senha').value;
+  if (senha === SENHA_SISTEMA) {
+    document.getElementById('login-screen').style.display = 'none';
+    sessionStorage.setItem('ds_auth', '1');
+  } else {
+    document.getElementById('login-erro').style.display = 'block';
+    document.getElementById('login-senha').value = '';
+    document.getElementById('login-senha').focus();
+  }
+}
+
+// Verifica se já está autenticado na sessão
+if (sessionStorage.getItem('ds_auth') === '1') {
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('login-screen').style.display = 'none';
+  });
+}
+</script>
+
 <div class="app">
   <div class="sidebar">
     <div class="sidebar-logo">
