@@ -186,6 +186,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <button class="nav-item" onclick="showPage('dre')" id="nav-dre"><i class="ti ti-report-analytics"></i> DRE</button>
       <button class="nav-item" onclick="showPage('resultado')" id="nav-resultado"><i class="ti ti-trophy"></i> Resultado do Mês</button>
       <button class="nav-item" onclick="showPage('orcamentos')" id="nav-orcamentos"><i class="ti ti-file-dollar"></i> Orçamentos</button>
+      <button class="nav-item" onclick="showPage('emprestimos')" id="nav-emprestimos"><i class="ti ti-building-bank"></i> Empréstimos</button>
       <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i> Proj. Pausados</button>
       <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i> Relatórios IA</button>
     </nav>
@@ -916,6 +917,7 @@ async function render(){
     else if(currentPage==='dre')await renderDRE(all,mes);
     else if(currentPage==='resultado')await renderResultado(all,mes);
     else if(currentPage==='orcamentos')await renderOrcamentos();
+    else if(currentPage==='emprestimos')await renderEmprestimos();
     else if(currentPage==='pausados')await renderPausados();
     else if(currentPage==='relatorios')renderRelatorios();
   }catch(e){
@@ -1735,6 +1737,111 @@ async function converterParaReceber(id){
   showToast(`✅ ${p.parcelas} conta(s) a receber criada(s)!`);
   render();
 }
+
+
+// ===== EMPRÉSTIMOS =====
+const EMPRESTIMOS_DATA = [
+  { id:'cred-crea',    nome:'Empréstimo Cred Crea',          instituicao:'Cred Crea',  valor_total:60000,  total_parcelas:48, parcela_atual:35, parcela_valor:2073.89, inadimplente:2, obs:'Parcelas 34 e 35 em aberto' },
+  { id:'sicredi-reneg',nome:'Empréstimo Sicredi Renegociação',instituicao:'Sicredi',   valor_total:150000, total_parcelas:48, parcela_atual:18, parcela_valor:5022.00, inadimplente:1, obs:'Parcela 18 em aberto' },
+  { id:'cresol',       nome:'Empréstimo Cresol',              instituicao:'Cresol',    valor_total:50000,  total_parcelas:50, parcela_atual:1,  parcela_valor:2000.00, inadimplente:0, obs:'Renegociado — 1ª parcela jun/26' },
+  { id:'rotativo',     nome:'Empréstimo Rotativo Sicredi',    instituicao:'Sicredi',   valor_total:60000,  total_parcelas:60, parcela_atual:28, parcela_valor:1703.90, inadimplente:1, obs:'Parcela 28 em aberto' },
+  { id:'hilo',         nome:'Empréstimo Hilo',                instituicao:'Hilo',      valor_total:50000,  total_parcelas:30, parcela_atual:7,  parcela_valor:2500.00, inadimplente:0, obs:'Parcela 8 em jun/26' },
+  { id:'bb-fgi',       nome:'Empréstimo BB FGI',              instituicao:'BB',        valor_total:100000, total_parcelas:30, parcela_atual:0,  parcela_valor:6000.00, inadimplente:0, obs:'1ª parcela capital+juro em jun/26' },
+];
+
+async function renderEmprestimos() {
+  const all = await getData();
+  const empKeywords = ['empréstimo','emprestimo','fgi','hilo','cresol','sicredi','cred crea','credcrea','rotativo'];
+
+  // Calcula parcelas pagas por empréstimo cruzando com lançamentos
+  function getParcelas(emp) {
+    const pagas = all.filter(x =>
+      x.tipo === 'pagar' &&
+      ['pago','parcial'].includes(x.status) &&
+      empKeywords.some(k => (x.desc||'').toLowerCase().includes(k)) &&
+      (x.desc||'').toLowerCase().includes(emp.instituicao.toLowerCase().split(' ')[0])
+    );
+    const totalPago = pagas.reduce((s,x) => s + (x.status==='parcial' ? (x.pago_parcial||0) : x.valor), 0);
+    return { count: emp.parcela_atual - emp.inadimplente, totalPago };
+  }
+
+  const totalDivida = EMPRESTIMOS_DATA.reduce((s,e) => s + e.valor_total, 0);
+  const totalInadimplente = EMPRESTIMOS_DATA.reduce((s,e) => s + (e.inadimplente * e.parcela_valor), 0);
+  const totalMensal = EMPRESTIMOS_DATA.reduce((s,e) => s + e.parcela_valor, 0);
+
+  const cards = EMPRESTIMOS_DATA.map(emp => {
+    const parcelasPagas = emp.parcela_atual - emp.inadimplente;
+    const estimativaPago = parcelasPagas * emp.parcela_valor;
+    const saldoDevedor = emp.valor_total - estimativaPago;
+    const pctPago = Math.min(100, (parcelasPagas / emp.total_parcelas) * 100);
+    const parcelasRestantes = emp.total_parcelas - parcelasPagas;
+    const statusColor = emp.inadimplente > 0 ? 'var(--accent2)' : 'var(--accent)';
+    const statusLabel = emp.inadimplente > 0
+      ? `<span style="background:#fef2ef;color:var(--accent2);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">⚠️ ${emp.inadimplente} parcela(s) em atraso</span>`
+      : `<span style="background:#eaf4ee;color:var(--accent);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">✓ Em dia</span>`;
+
+    return `
+    <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid ${statusColor}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-weight:700;font-size:15px;color:var(--text)">${emp.nome}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">${emp.instituicao} · ${emp.total_parcelas}x · Parcela ${emp.parcela_atual}/${emp.total_parcelas}</div>
+        </div>
+        ${statusLabel}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+        <div style="background:var(--surface2);border-radius:8px;padding:12px">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Valor contratado</div>
+          <div style="font-weight:700;color:var(--text);font-size:14px">${fmt(emp.valor_total)}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:12px">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Saldo devedor est.</div>
+          <div style="font-weight:700;color:var(--accent2);font-size:14px">${fmt(Math.max(0,saldoDevedor))}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:12px">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Parcela mensal</div>
+          <div style="font-weight:700;color:var(--blue);font-size:14px">${fmt(emp.parcela_valor)}</div>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text3);margin-bottom:6px">
+          <span>${parcelasPagas} parcelas pagas</span>
+          <span>${parcelasRestantes} restantes</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:4px;height:8px;overflow:hidden">
+          <div style="background:${statusColor};height:100%;width:${pctPago.toFixed(1)}%;border-radius:4px;transition:width .3s"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">${pctPago.toFixed(1)}% quitado</div>
+      </div>
+      ${emp.obs ? `<div style="font-size:12px;color:var(--text3);margin-top:8px;font-style:italic">${emp.obs}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:900px">
+      <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+        <div class="metric-card">
+          <div class="metric-label">Total de dívidas</div>
+          <div class="metric-value" style="color:var(--accent2)">${fmt(totalDivida)}</div>
+          <div class="metric-sub">${EMPRESTIMOS_DATA.length} empréstimos ativos</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Compromisso mensal</div>
+          <div class="metric-value blue">${fmt(totalMensal)}</div>
+          <div class="metric-sub">parcelas do mês</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Em atraso</div>
+          <div class="metric-value" style="color:var(--amber)">${fmt(totalInadimplente)}</div>
+          <div class="metric-sub">${EMPRESTIMOS_DATA.filter(e=>e.inadimplente>0).length} empréstimo(s) inadimplente(s)</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        ${cards}
+      </div>
+    </div>`;
+}
+
 
 async function renderPausados(){
   const list=await getPausados();
