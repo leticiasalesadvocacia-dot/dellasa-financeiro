@@ -1743,13 +1743,12 @@ async function converterParaReceber(id){
 
 // ===== EMPRÉSTIMOS =====
 const EMPRESTIMOS_DATA = [
-  // parcelas_pagas: quantas já foram pagas (usamos para calcular saldo devedor real)
-  { id:'cred-crea',    nome:'Empréstimo Cred Crea',           instituicao:'Cred Crea', keyword:'cred crea',  total_parcelas:48, parcelas_pagas:33, parcela_valor:2073.89 },
-  { id:'sicredi-reneg',nome:'Empréstimo Sicredi Renegociação',instituicao:'Sicredi',   keyword:'sicredi - renegociação', total_parcelas:48, parcelas_pagas:17, parcela_valor:5022.00, parcial_pago:493.23 },
-  { id:'cresol',       nome:'Empréstimo Cresol',              instituicao:'Cresol',    keyword:'cresol',     total_parcelas:57, parcelas_pagas:0,  parcela_valor:2000.00 },
-  { id:'rotativo',     nome:'Empréstimo Rotativo Sicredi',    instituicao:'Sicredi',   keyword:'rotativo',   total_parcelas:60, parcelas_pagas:27, parcela_valor:1703.90 },
-  { id:'hilo',         nome:'Empréstimo Hilo',                instituicao:'Hilo',      keyword:'hilo',       total_parcelas:30, parcelas_pagas:7,  parcela_valor:2500.00 },
-  { id:'bb-fgi',       nome:'Empréstimo BB FGI',              instituicao:'BB',        keyword:'fgi',        total_parcelas:30, parcelas_pagas:0,  parcela_valor:6000.00 },
+  { id:'cred-crea',    nome:'Empréstimo Cred Crea',           instituicao:'Cred Crea', keyword:'cred crea',             valor_total:60000,  total_parcelas:48, parcelas_pagas:33, parcela_valor:2073.89 },
+  { id:'sicredi-reneg',nome:'Empréstimo Sicredi Renegociação',instituicao:'Sicredi',   keyword:'sicredi - renegociação',valor_total:150000, total_parcelas:48, parcelas_pagas:17, parcela_valor:5022.00, parcial_pago:493.23 },
+  { id:'cresol',       nome:'Empréstimo Cresol',              instituicao:'Cresol',    keyword:'cresol',                valor_total:114000, total_parcelas:57, parcelas_pagas:0,  parcela_valor:2000.00 },
+  { id:'rotativo',     nome:'Empréstimo Rotativo Sicredi',    instituicao:'Sicredi',   keyword:'rotativo',              valor_total:60000,  total_parcelas:60, parcelas_pagas:27, parcela_valor:1703.90 },
+  { id:'hilo',         nome:'Empréstimo Hilo',                instituicao:'Hilo',      keyword:'hilo',                  valor_total:50000,  total_parcelas:30, parcelas_pagas:7,  parcela_valor:2500.00 },
+  { id:'bb-fgi',       nome:'Empréstimo BB FGI',              instituicao:'BB',        keyword:'bb fgi',                valor_total:180000, total_parcelas:30, parcelas_pagas:0,  parcela_valor:6000.00 },
 ];
 
 // Modal novo empréstimo
@@ -1853,9 +1852,15 @@ async function renderEmprestimos() {
     const pagas = parcelas.filter(x => x.status === 'pago');
     const parciais = parcelas.filter(x => x.status === 'parcial');
     const pendentes = parcelas.filter(x => ['pendente','vencido'].includes(x.status));
-    const vencidas = parcelas.filter(x => x.status === 'vencido' || (x.status === 'pendente' && x.venc < hoje));
+    // Vencida = status vencido OU pendente com data passada OU parcial com data passada
+    const vencidas = parcelas.filter(x =>
+      x.status === 'vencido' ||
+      (x.status === 'pendente' && x.venc < hoje) ||
+      (x.status === 'parcial' && x.venc < hoje)
+    );
+    const temAtraso = vencidas.length > 0;
 
-    // Saldo devedor = parcelas restantes × valor da parcela + parcela parcial restante
+    // Saldo devedor = parcelas restantes × valor da parcela
     const parcelasRestantes = emp.total_parcelas - emp.parcelas_pagas;
     const parcialRestante = emp.parcial_pago ? (emp.parcela_valor - emp.parcial_pago) : 0;
     const saldoDevedor = Math.max(0, (parcelasRestantes * emp.parcela_valor) - parcialRestante);
@@ -1867,20 +1872,27 @@ async function renderEmprestimos() {
     const totalPagoSistema = pagas.reduce((s,x) => s + x.valor, 0)
                            + parciais.reduce((s,x) => s + (x.pago_parcial||0), 0);
 
-    const totalPendente = pendentes.reduce((s,x) => s + x.valor, 0);
+    // A pagar = saldo devedor (não soma parcelas do sistema para evitar duplicidade)
+    const totalPendente = saldoDevedor;
+
+    // Próxima parcela = primeira pendente/vencida por data
     const proximaParcela = [...pendentes].sort((a,b) => a.venc > b.venc ? 1 : -1)[0];
-    return { parcelas, pagas, parciais, pendentes, vencidas, totalPagoSistema, totalPendente, saldoDevedor, pctPago, proximaParcela, parcelasRestantes };
+    return { parcelas, pagas, parciais, pendentes, vencidas, temAtraso, totalPagoSistema, totalPendente, saldoDevedor, pctPago, proximaParcela, parcelasRestantes };
   }
 
   const emps = EMPRESTIMOS_DATA.map(e => ({ ...e, calc: calcEmp(e) }));
   const totalDivida = emps.reduce((s,e) => s + e.calc.saldoDevedor, 0);
-  const totalMensal = emps.reduce((s,e) => s + (e.calc.proximaParcela ? e.calc.proximaParcela.valor : 0), 0);
-  const totalAtraso = emps.reduce((s,e) => s + e.calc.vencidas.reduce((sv,x) => sv+x.valor, 0), 0);
-  const empsAtivos = emps.filter(e => e.calc.pendentes.length > 0 || e.calc.pagas.length > 0);
+  const mesAtual = new Date().toISOString().substring(0,7);
+  const totalMensal = emps.reduce((s,e) => {
+    const parcelaMes = e.calc.parcelas.filter(x => x.mes === mesAtual && ['pendente','vencido','parcial'].includes(x.status));
+    return s + parcelaMes.reduce((sv,x) => sv + (x.status==='parcial' ? ((x.valor||0)-(x.pago_parcial||0)) : x.valor), 0);
+  }, 0);
+  const totalAtraso = emps.reduce((s,e) => s + e.calc.vencidas.reduce((sv,x) => sv + (x.status==='parcial' ? ((x.valor||0)-(x.pago_parcial||0)) : x.valor), 0), 0);
+  const empsAtivos = emps.filter(e => e.calc.pendentes.length > 0 || e.calc.pagas.length > 0 || e.calc.parciais.length > 0);
 
   const cards = emps.map(emp => {
     const c = emp.calc;
-    const inadimplente = c.vencidas.length > 0;
+    const inadimplente = c.temAtraso;
     const quitado = c.pendentes.length === 0 && c.pagas.length > 0;
     const statusColor = quitado ? '#888' : inadimplente ? 'var(--accent2)' : 'var(--accent)';
     const statusLabel = quitado
@@ -1919,8 +1931,8 @@ async function renderEmprestimos() {
           <div style="font-weight:700;color:var(--accent2);font-size:14px">${fmt(c.saldoDevedor)}</div>
         </div>
         <div style="background:var(--surface2);border-radius:8px;padding:12px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">A pagar</div>
-          <div style="font-weight:700;color:var(--blue);font-size:14px">${fmt(c.totalPendente)}</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Parcelas restantes</div>
+          <div style="font-weight:700;color:var(--blue);font-size:14px">${c.parcelasRestantes}x de ${fmt(emp.parcela_valor)}</div>
         </div>
       </div>
       <div>
@@ -1955,7 +1967,7 @@ async function renderEmprestimos() {
         <div class="metric-card">
           <div class="metric-label">Em atraso</div>
           <div class="metric-value" style="color:var(--amber)">${fmt(totalAtraso)}</div>
-          <div class="metric-sub">${emps.filter(e=>e.calc.vencidas.length>0).length} empréstimo(s) com atraso</div>
+          <div class="metric-sub">${emps.filter(e=>e.calc.temAtraso).length} empréstimo(s) com atraso</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:16px">${cards}</div>
