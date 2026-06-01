@@ -1767,7 +1767,7 @@ Gere APENAS HTML com estas seções (use só <h3>, <p>, <ul>, <li>, <strong>):
 <h3>💡 Sugestões para o Próximo Mês</h3> [3 sugestões práticas e específicas para escritório de engenharia]
 Use números reais. Não invente dados. Responda APENAS o HTML.`;
 
-  const resp=await fetch('https://dellasa-ia.vercel.app/api/analisar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
+  const resp=await fetch('https://dellasa-financeiro.vercel.app/api/analisar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
   const data=await resp.json();
   return data.text||'Erro ao gerar análise.';
 }
