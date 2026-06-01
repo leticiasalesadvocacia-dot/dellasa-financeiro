@@ -809,9 +809,7 @@ async function confirmarDelete(id){
 async function toggleStatus(id){
   const all=await getData();
   const item=all.find(x=>x.id===id);if(!item)return;
-  const hoje=new Date().toISOString().substring(0,10);
-  const statusInativo=item.venc<hoje?'vencido':'pendente';
-  const s=item.tipo==='receber'?(item.status==='recebido'?statusInativo:'recebido'):(item.status==='pago'?statusInativo:'pago');
+  const s=item.tipo==='receber'?(item.status==='recebido'?'pendente':'recebido'):(item.status==='pago'?'pendente':'pago');
   await updateItem(id,{status:s});showToast('Status atualizado.');render();
 }
 
@@ -1852,12 +1850,8 @@ async function renderEmprestimos() {
     const pagas = parcelas.filter(x => x.status === 'pago');
     const parciais = parcelas.filter(x => x.status === 'parcial');
     const pendentes = parcelas.filter(x => ['pendente','vencido'].includes(x.status));
-    // Vencida = status vencido OU pendente com data passada OU parcial com data passada
-    const vencidas = parcelas.filter(x =>
-      x.status === 'vencido' ||
-      (x.status === 'pendente' && x.venc < hoje) ||
-      (x.status === 'parcial' && x.venc < hoje)
-    );
+    // Atraso = apenas o que foi marcado manualmente como 'vencido' ou 'parcial'
+    const vencidas = parcelas.filter(x => x.status === 'vencido' || x.status === 'parcial');
     const temAtraso = vencidas.length > 0;
 
     // Saldo devedor = parcelas restantes × valor da parcela
