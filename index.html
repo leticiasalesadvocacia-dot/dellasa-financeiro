@@ -809,7 +809,9 @@ async function confirmarDelete(id){
 async function toggleStatus(id){
   const all=await getData();
   const item=all.find(x=>x.id===id);if(!item)return;
-  const s=item.tipo==='receber'?(item.status==='recebido'?'pendente':'recebido'):(item.status==='pago'?'pendente':'pago');
+  const hoje=new Date().toISOString().substring(0,10);
+  const statusInativo=item.venc<hoje?'vencido':'pendente';
+  const s=item.tipo==='receber'?(item.status==='recebido'?statusInativo:'recebido'):(item.status==='pago'?statusInativo:'pago');
   await updateItem(id,{status:s});showToast('Status atualizado.');render();
 }
 
@@ -1846,10 +1848,11 @@ async function renderEmprestimos() {
       x.cat === 'Empréstimo' &&
       (x.desc||'').toLowerCase().includes(emp.keyword.toLowerCase())
     );
+    const hoje = new Date().toISOString().substring(0,10);
     const pagas = parcelas.filter(x => ['pago'].includes(x.status));
     const parciais = parcelas.filter(x => x.status === 'parcial');
     const pendentes = parcelas.filter(x => ['pendente','vencido'].includes(x.status));
-    const vencidas = parcelas.filter(x => x.status === 'vencido');
+    const vencidas = parcelas.filter(x => x.status === 'vencido' || (x.status === 'pendente' && x.venc < hoje));
     const totalPago = pagas.reduce((s,x) => s + x.valor, 0)
                     + parciais.reduce((s,x) => s + (x.pago_parcial||0), 0);
     const totalPendente = pendentes.reduce((s,x) => s + x.valor, 0);
