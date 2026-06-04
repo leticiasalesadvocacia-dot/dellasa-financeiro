@@ -2150,25 +2150,77 @@ async function gerarAnaliseIA(mesPrincipal,mesPrevisao1,mesPrevisao2){
   const r1=mesPrevisao1?buildResumoMes(all,mesPrevisao1):null;
   const r2=mesPrevisao2?buildResumoMes(all,mesPrevisao2):null;
   const metas=await getMetas();
-  const prompt=`Você é analista financeiro da DellaSá Estruturas Ltda, escritório de engenharia estrutural em Balneário Camboriú/SC. Analise os dados e gere relatório executivo em português brasileiro.
+
+  // Orçamentos
+  const orcs=await getOrcamentos();
+  const orcsEnviados=orcs.filter(o=>o.status==='enviado');
+  const orcsAprovados=orcs.filter(o=>o.status==='aprovado');
+  const orcsPerdidos=orcs.filter(o=>o.status==='perdido');
+  const vlPipeline=orcsEnviados.reduce((s,o)=>s+o.valor,0);
+  const vlAprovado=orcsAprovados.reduce((s,o)=>s+o.valor,0);
+  const taxaConv=orcs.length>0?(orcsAprovados.length/(orcsAprovados.length+orcsPerdidos.length)*100)||0:0;
+  const topOrcamentos=orcsEnviados.sort((a,b)=>b.valor-a.valor).slice(0,5)
+    .map(o=>`${o.cliente}: R$${o.valor.toFixed(0)} (${o.parcelas}x, prob.${o.probabilidade||'?'}%)`).join(' | ');
+
+  // Análise de cenários por orçamento
+  const cenariosOrc=orcsEnviados.slice(0,5).map(o=>{
+    const recMes=o.valor/o.parcelas;
+    const saldoMes=r0.resultado+recMes;
+    return `${o.cliente} (R$${o.valor.toFixed(0)}, ${o.parcelas}x de R$${recMes.toFixed(0)}/mês): resultado mensal passaria para R$${saldoMes.toFixed(0)}`;
+  }).join('
+');
+
+  // Empréstimos
+  const emps=await getEmprestimos();
+  const empsAtivos=emps.filter(e=>e.status!=='quitado');
+  const totalDevedorEmps=empsAtivos.reduce((s,e)=>s+((e.parcelas_abertas||0)*(e.valor_parcela||0)),0);
+  const totalParcelasEmps=empsAtivos.reduce((s,e)=>s+(e.valor_parcela||0),0);
+  const empsVencidos=empsAtivos.filter(e=>e.status==='vencido'||e.status==='parcial');
+  const vlEmpsVencidos=empsVencidos.reduce((s,e)=>s+(e.status==='parcial'?((e.valor_parcela||0)-(e.valor_parcial||0)):e.valor_parcela||0),0);
+  const resumoEmps=empsAtivos.map(e=>`${e.nome} (${e.instituicao}): ${e.parcelas_abertas}x de R$${(e.valor_parcela||0).toFixed(0)}, saldo R$${((e.parcelas_abertas||0)*(e.valor_parcela||0)).toFixed(0)}, status: ${e.status}`).join('
+');
+
+  const prompt=`Você é analista financeiro sênior da DellaSá Estruturas Ltda, escritório de engenharia estrutural em Balneário Camboriú/SC. Analise os dados completos abaixo e gere relatório executivo detalhado em português brasileiro.
 
 ## MÊS ANALISADO: ${getMesLabel(mesPrincipal)}
 - Faturamento total: R$ ${r0.tRec.toFixed(2)} | Recebido: R$ ${r0.recebido.toFixed(2)} | Pendente: R$ ${r0.pendRec.toFixed(2)}
 - Despesas totais: R$ ${r0.tDep.toFixed(2)} | Pago: R$ ${(r0.pago+r0.pagoParcial).toFixed(2)} | Pendente: R$ ${r0.pendPag.toFixed(2)}
 - Resultado: R$ ${r0.resultado.toFixed(2)} | Margem: ${r0.margem.toFixed(1)}%
 - Meta: R$ ${(metas[mesPrincipal]||0).toFixed(2)} | Títulos vencidos: ${r0.vencidos.length}
-- Top receitas: ${r0.recCats.slice(0,3).map(([c,v])=>`${c}: R$${v.toFixed(0)}`).join(', ')||'nenhum'}
-- Top despesas: ${r0.depCats.slice(0,3).map(([c,v])=>`${c}: R$${v.toFixed(0)}`).join(', ')||'nenhum'}
-${r1?`\n## PREVISÃO ${getMesLabel(mesPrevisao1)}\n- Receitas: R$ ${r1.tRec.toFixed(2)} | Despesas: R$ ${r1.tDep.toFixed(2)} | Resultado: R$ ${r1.resultado.toFixed(2)} | Meta: R$ ${(metas[mesPrevisao1]||0).toFixed(2)}`:''}
-${r2?`\n## PREVISÃO ${getMesLabel(mesPrevisao2)}\n- Receitas: R$ ${r2.tRec.toFixed(2)} | Despesas: R$ ${r2.tDep.toFixed(2)} | Resultado: R$ ${r2.resultado.toFixed(2)} | Meta: R$ ${(metas[mesPrevisao2]||0).toFixed(2)}`:''}
+- Top receitas por categoria: ${r0.recCats.slice(0,5).map(([c,v])=>`${c}: R$${v.toFixed(0)}`).join(', ')||'nenhum'}
+- Top despesas por categoria: ${r0.depCats.slice(0,5).map(([c,v])=>`${c}: R$${v.toFixed(0)}`).join(', ')||'nenhum'}
+
+${r1?`## PREVISÃO ${getMesLabel(mesPrevisao1)}
+- Receitas: R$ ${r1.tRec.toFixed(2)} | Despesas: R$ ${r1.tDep.toFixed(2)} | Resultado: R$ ${r1.resultado.toFixed(2)} | Meta: R$ ${(metas[mesPrevisao1]||0).toFixed(2)}`:''}
+${r2?`## PREVISÃO ${getMesLabel(mesPrevisao2)}
+- Receitas: R$ ${r2.tRec.toFixed(2)} | Despesas: R$ ${r2.tDep.toFixed(2)} | Resultado: R$ ${r2.resultado.toFixed(2)} | Meta: R$ ${(metas[mesPrevisao2]||0).toFixed(2)}`:''}
+
+## PIPELINE DE ORÇAMENTOS
+- Total enviados: ${orcsEnviados.length} orçamentos | Valor total em aberto: R$ ${vlPipeline.toFixed(2)}
+- Aprovados (histórico): ${orcsAprovados.length} | Valor: R$ ${vlAprovado.toFixed(2)}
+- Taxa de conversão: ${taxaConv.toFixed(1)}%
+- Top orçamentos em aberto: ${topOrcamentos||'nenhum'}
+
+## SIMULAÇÃO DE FECHAMENTO DE ORÇAMENTOS
+(Se fechar cada orçamento abaixo, o impacto mensal seria:)
+${cenariosOrc||'Nenhum orçamento em aberto'}
+
+## EMPRÉSTIMOS ATIVOS
+- Total de empréstimos ativos: ${empsAtivos.length}
+- Compromisso mensal total: R$ ${totalParcelasEmps.toFixed(2)}
+- Saldo devedor total: R$ ${totalDevedorEmps.toFixed(2)}
+- Em atraso: ${empsVencidos.length} empréstimo(s) | R$ ${vlEmpsVencidos.toFixed(2)}
+${resumoEmps}
 
 Gere APENAS HTML com estas seções (use só <h3>, <p>, <ul>, <li>, <strong>):
-<h3>📊 Resumo Executivo</h3> [2-3 frases diretas sobre o resultado]
-<h3>✅ Pontos Positivos</h3> [2-3 pontos reais dos dados]
-<h3>⚠️ Pontos de Atenção</h3> [2-3 alertas reais — inadimplência, despesas altas, meta, etc.]
-<h3>🔭 Previsão dos Próximos Meses</h3> [análise do que está previsto — só se houver dados de previsão]
-<h3>💡 Sugestões para o Próximo Mês</h3> [3 sugestões práticas e específicas para escritório de engenharia]
-Use números reais. Não invente dados. Responda APENAS o HTML.`;
+<h3>📊 Resumo Executivo</h3> [panorama geral: resultado, meta, caixa]
+<h3>✅ Pontos Positivos</h3> [2-3 pontos concretos dos dados]
+<h3>⚠️ Pontos de Atenção</h3> [inadimplência, despesas, empréstimos em atraso, meta]
+<h3>💼 Análise do Pipeline</h3> [quais orçamentos fechar primeiro, melhor opção de parcelamento para a empresa, impacto no fluxo de caixa]
+<h3>🏦 Situação dos Empréstimos</h3> [análise da dívida, comprometimento da receita, alertas de atraso, sugestões]
+<h3>🔭 Previsão dos Próximos Meses</h3> [só se houver dados de previsão]
+<h3>💡 Sugestões Estratégicas</h3> [3-5 ações práticas e específicas para o escritório]
+Use números reais. Não invente dados. Seja direto e objetivo. Responda APENAS o HTML.`;
 
   const resp=await fetch('https://dellasa-financeiro.vercel.app/api/analisar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
   const data=await resp.json();
