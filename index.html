@@ -1740,209 +1740,157 @@ async function converterParaReceber(id){
 
 
 // ===== EMPRÉSTIMOS =====
-const EMPRESTIMOS_DATA = [
-  { id:'cred-crea',    nome:'Empréstimo Cred Crea',           instituicao:'Cred Crea', keyword:'cred crea',             valor_total:60000,  total_parcelas:48, parcelas_pagas:33, parcela_valor:2073.89 },
-  { id:'sicredi-reneg',nome:'Empréstimo Sicredi Renegociação',instituicao:'Sicredi',   keyword:'sicredi - renegociação',valor_total:150000, total_parcelas:48, parcelas_pagas:17, parcela_valor:5022.00, parcial_pago:493.23 },
-  { id:'cresol',       nome:'Empréstimo Cresol',              instituicao:'Cresol',    keyword:'cresol',                valor_total:114000, total_parcelas:57, parcelas_pagas:0,  parcela_valor:2000.00 },
-  { id:'rotativo',     nome:'Empréstimo Rotativo Sicredi',    instituicao:'Sicredi',   keyword:'rotativo',              valor_total:60000,  total_parcelas:60, parcelas_pagas:27, parcela_valor:1703.90 },
-  { id:'hilo',         nome:'Empréstimo Hilo',                instituicao:'Hilo',      keyword:'hilo',                  valor_total:50000,  total_parcelas:30, parcelas_pagas:7,  parcela_valor:2500.00 },
-  { id:'bb-fgi',       nome:'Empréstimo BB FGI',              instituicao:'BB',        keyword:'bb fgi',                valor_total:180000, total_parcelas:30, parcelas_pagas:0,  parcela_valor:6000.00 },
-];
 
-// Modal novo empréstimo
-function abrirModalNovoEmprestimo() {
-  document.getElementById('modal-emp').style.display='flex';
+async function getEmprestimos() {
+  const rows = await db('select', 'emprestimos', null, 'select=*&order=created_at.asc');
+  return rows;
+}
+
+function empStatusLabel(status) {
+  if (status === 'vencido') return `<span style="background:#fef2ef;color:#C4411A;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">⚠️ Vencido</span>`;
+  if (status === 'parcial')  return `<span style="background:#fff8e6;color:#B57A00;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">◑ Parcial</span>`;
+  return `<span style="background:#eaf4ee;color:#2A5C45;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">✓ Em dia</span>`;
+}
+
+function empBorderColor(status) {
+  if (status === 'vencido') return '#C4411A';
+  if (status === 'parcial') return '#F5A623';
+  return '#2A5C45';
+}
+
+async function salvarEmprestimo(id) {
+  const nome        = document.getElementById(`emp-nome-${id}`).value.trim();
+  const instituicao = document.getElementById(`emp-inst-${id}`).value.trim();
+  const valor_total = parseFloat(document.getElementById(`emp-vtotal-${id}`).value) || 0;
+  const parcelas_pagas   = parseInt(document.getElementById(`emp-ppagas-${id}`).value) || 0;
+  const parcelas_abertas = parseInt(document.getElementById(`emp-pabertas-${id}`).value) || 0;
+  const valor_parcela    = parseFloat(document.getElementById(`emp-vparcela-${id}`).value) || 0;
+  const status      = document.getElementById(`emp-status-${id}`).value;
+  const valor_parcial = parseFloat(document.getElementById(`emp-vparcial-${id}`).value) || 0;
+  const obs         = document.getElementById(`emp-obs-${id}`).value.trim();
+
+  await db('update', 'emprestimos', { id, nome, instituicao, valor_total, parcelas_pagas, parcelas_abertas, valor_parcela, status, valor_parcial, obs });
+  await renderEmprestimos();
+}
+
+async function deletarEmprestimo(id, nome) {
+  if (!confirm(`Excluir "${nome}"?`)) return;
+  await db('delete', 'emprestimos', { id });
+  await renderEmprestimos();
+}
+
+async function abrirModalNovoEmprestimo() {
+  document.getElementById('modal-emp').style.display = 'flex';
 }
 function fecharModalEmp() {
-  document.getElementById('modal-emp').style.display='none';
+  document.getElementById('modal-emp').style.display = 'none';
   document.getElementById('form-emp').reset();
 }
 
 async function salvarNovoEmprestimo() {
-  const nome = document.getElementById('emp-nome').value.trim();
-  const inst = document.getElementById('emp-inst').value.trim();
-  const valor_total = parseFloat(document.getElementById('emp-valor').value);
-  const n_parcelas = parseInt(document.getElementById('emp-nparcelas').value);
-  const valor_parcela = parseFloat(document.getElementById('emp-vparcela').value);
-  const data_inicio = document.getElementById('emp-data').value;
-  const obs = document.getElementById('emp-obs').value.trim();
+  const nome        = document.getElementById('emp-nome').value.trim();
+  const instituicao = document.getElementById('emp-inst').value.trim();
+  const valor_total = parseFloat(document.getElementById('emp-valor').value) || 0;
+  const parcelas_pagas   = parseInt(document.getElementById('emp-ppagas').value) || 0;
+  const parcelas_abertas = parseInt(document.getElementById('emp-pabertas').value) || 0;
+  const valor_parcela    = parseFloat(document.getElementById('emp-vparcela').value) || 0;
+  const status      = document.getElementById('emp-status').value;
+  const obs         = document.getElementById('emp-obs').value.trim();
 
-  if (!nome || !inst || !valor_total || !n_parcelas || !valor_parcela || !data_inicio) {
-    alert('Preencha todos os campos obrigatórios.'); return;
-  }
+  if (!nome || !valor_parcela) { alert('Preencha pelo menos o nome e valor da parcela.'); return; }
 
-  // 1. Lança entrada no caixa (tipo receber, cat Empréstimo)
-  const mesEntrada = data_inicio.substring(0,7);
-  const entradaId = 'emp-entrada-' + Date.now();
-  await db('insert','lancamentos',[{
-    id: entradaId,
-    tipo: 'receber',
-    descricao: 'ENTRADA - ' + nome.toUpperCase(),
-    valor: valor_total,
-    venc: data_inicio,
-    parte: inst,
-    cat: 'Empréstimo',
-    status: 'recebido',
-    mes: mesEntrada,
-    obs: obs || 'Entrada de empréstimo'
-  }]);
-
-  // 2. Cria parcelas em A Pagar
-  const grupoId = 'emp-grup-' + Date.now();
-  const parcelas = [];
-  const dataBase = new Date(data_inicio + 'T12:00:00');
-  for (let i = 0; i < n_parcelas; i++) {
-    const d = new Date(dataBase);
-    d.setMonth(d.getMonth() + i);
-    const venc = d.toISOString().substring(0,10);
-    const mes = venc.substring(0,7);
-    parcelas.push({
-      id: grupoId + '-' + (i+1),
-      tipo: 'pagar',
-      descricao: `${i+1}/${n_parcelas} - ${nome.toUpperCase()}`,
-      valor: valor_parcela,
-      venc,
-      parte: inst,
-      cat: 'Empréstimo',
-      status: 'pendente',
-      mes,
-      grupo_id: grupoId,
-      parcela: i+1,
-      total_parcelas: n_parcelas,
-      obs: obs || ''
-    });
-  }
-  await db('insert','lancamentos', parcelas);
-  invalidateCache();
+  const id = 'emp-' + Date.now();
+  await db('insert', 'emprestimos', [{ id, nome, instituicao, valor_total, parcelas_pagas, parcelas_abertas, valor_parcela, status, valor_parcial: 0, obs }]);
   fecharModalEmp();
-  alert(`Empréstimo cadastrado!\n✅ Entrada de ${fmt(valor_total)} lançada no caixa\n✅ ${n_parcelas} parcelas criadas em A Pagar`);
-  await renderEmprestimos();
-}
-
-async function quitarEmprestimo(keyword, nome) {
-  if (!confirm(`Deseja marcar todas as parcelas pendentes de "${nome}" como PAGAS?\n\nIsso quitará o contrato no sistema.`)) return;
-  const all = await getData();
-  const pendentes = all.filter(x =>
-    x.tipo === 'pagar' &&
-    ['pendente','vencido'].includes(x.status) &&
-    (x.desc||'').toLowerCase().includes(keyword.toLowerCase())
-  );
-  if (pendentes.length === 0) { alert('Nenhuma parcela pendente encontrada.'); return; }
-  for (const p of pendentes) {
-    await db('update','lancamentos',{ id: p.id, status: 'pago' });
-  }
-  invalidateCache();
-  alert(`✅ ${pendentes.length} parcela(s) quitada(s)!`);
   await renderEmprestimos();
 }
 
 async function renderEmprestimos() {
-  const all = await getData();
+  const list = await getEmprestimos();
 
-  // Calcula dados reais por empréstimo cruzando com lançamentos
-  function calcEmp(emp) {
-    const hoje = new Date().toISOString().substring(0,10);
-    const parcelas = all.filter(x =>
-      x.tipo === 'pagar' &&
-      x.cat === 'Empréstimo' &&
-      (x.desc||'').toLowerCase().includes(emp.keyword.toLowerCase())
-    );
-    const pagas = parcelas.filter(x => x.status === 'pago');
-    const parciais = parcelas.filter(x => x.status === 'parcial');
-    const pendentes = parcelas.filter(x => ['pendente','vencido'].includes(x.status));
-    // Atraso = apenas o que foi marcado manualmente como 'vencido' ou 'parcial'
-    const vencidas = parcelas.filter(x => x.status === 'vencido' || x.status === 'parcial');
-    const temAtraso = vencidas.length > 0;
+  const totalDevedor  = list.reduce((s,e) => s + ((e.parcelas_abertas||0) * (e.valor_parcela||0)), 0);
+  const totalMes      = list.reduce((s,e) => s + (e.valor_parcela||0), 0);
+  const totalAtraso   = list.filter(e => e.status === 'vencido' || e.status === 'parcial')
+                            .reduce((s,e) => s + (e.status === 'parcial' ? ((e.valor_parcela||0) - (e.valor_parcial||0)) : (e.valor_parcela||0)), 0);
+  const qtdAtraso     = list.filter(e => e.status === 'vencido' || e.status === 'parcial').length;
 
-    // Saldo devedor = parcelas restantes × valor da parcela
-    const parcelasRestantes = emp.total_parcelas - emp.parcelas_pagas;
-    const parcialRestante = emp.parcial_pago ? (emp.parcela_valor - emp.parcial_pago) : 0;
-    const saldoDevedor = Math.max(0, (parcelasRestantes * emp.parcela_valor) - parcialRestante);
-
-    // % pago baseado nas parcelas pagas declaradas
-    const pctPago = Math.min(100, (emp.parcelas_pagas / emp.total_parcelas) * 100);
-
-    // Total pago real pelo sistema (para exibição)
-    const totalPagoSistema = pagas.reduce((s,x) => s + x.valor, 0)
-                           + parciais.reduce((s,x) => s + (x.pago_parcial||0), 0);
-
-    // A pagar = saldo devedor (não soma parcelas do sistema para evitar duplicidade)
-    const totalPendente = saldoDevedor;
-
-    // Próxima parcela = primeira pendente/vencida por data
-    const proximaParcela = [...pendentes].sort((a,b) => a.venc > b.venc ? 1 : -1)[0];
-    return { parcelas, pagas, parciais, pendentes, vencidas, temAtraso, totalPagoSistema, totalPendente, saldoDevedor, pctPago, proximaParcela, parcelasRestantes };
-  }
-
-  const emps = EMPRESTIMOS_DATA.map(e => ({ ...e, calc: calcEmp(e) }));
-  const totalDivida = emps.reduce((s,e) => s + e.calc.saldoDevedor, 0);
-  const mesAtual = new Date().toISOString().substring(0,7);
-  const totalMensal = emps.reduce((s,e) => {
-    const parcelaMes = e.calc.parcelas.filter(x => x.mes === mesAtual && ['pendente','vencido','parcial'].includes(x.status));
-    return s + parcelaMes.reduce((sv,x) => sv + (x.status==='parcial' ? ((x.valor||0)-(x.pago_parcial||0)) : x.valor), 0);
-  }, 0);
-  const totalAtraso = emps.reduce((s,e) => s + e.calc.vencidas.reduce((sv,x) => sv + (x.status==='parcial' ? ((x.valor||0)-(x.pago_parcial||0)) : x.valor), 0), 0);
-  const empsAtivos = emps.filter(e => e.calc.pendentes.length > 0 || e.calc.pagas.length > 0 || e.calc.parciais.length > 0);
-
-  const cards = emps.map(emp => {
-    const c = emp.calc;
-    const inadimplente = c.temAtraso;
-    const quitado = c.pendentes.length === 0 && c.pagas.length > 0;
-    const statusColor = quitado ? '#888' : inadimplente ? 'var(--accent2)' : 'var(--accent)';
-    const statusLabel = quitado
-      ? `<span style="background:#f0f0f0;color:#888;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">✓ Quitado</span>`
-      : inadimplente
-        ? `<span style="background:#fef2ef;color:var(--accent2);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">⚠️ ${c.vencidas.length} parcela(s) em atraso</span>`
-        : `<span style="background:#eaf4ee;color:var(--accent);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">✓ Em dia</span>`;
-
-    const proxInfo = c.proximaParcela
-      ? `Próxima: ${fmt(c.proximaParcela.valor)} em ${fmtDate(c.proximaParcela.venc)}`
-      : quitado ? 'Contrato quitado' : 'Sem parcelas cadastradas';
+  const cards = list.map(e => {
+    const saldo = (e.parcelas_abertas||0) * (e.valor_parcela||0);
+    const total = (e.valor_total||0);
+    const pct   = total > 0 ? Math.min(100, ((total - saldo) / total * 100)) : 0;
+    const border = empBorderColor(e.status);
 
     return `
-    <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid ${statusColor}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid ${border}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:8px">
+        <div style="font-weight:700;font-size:15px;color:var(--text)">${e.nome} <span style="font-weight:400;font-size:12px;color:var(--text3)">${e.instituicao||''}</span></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${empStatusLabel(e.status)}
+          <button onclick="deletarEmprestimo('${e.id}','${e.nome}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px" title="Excluir">🗑</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px">
         <div>
-          <div style="font-weight:700;font-size:15px;color:var(--text)">${emp.nome}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:2px">${emp.instituicao} · ${emp.total_parcelas}x · ${proxInfo}</div>
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Nome</label>
+          <input id="emp-nome-${e.id}" value="${e.nome||''}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          ${statusLabel}
-          ${!quitado ? `<button onclick="quitarEmprestimo('${emp.keyword}','${emp.nome}')" style="background:#f5f5f5;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--text2)">🏳️ Quitar contrato</button>` : ''}
+        <div>
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Instituição</label>
+          <input id="emp-inst-${e.id}" value="${e.instituicao||''}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Valor total contratado</label>
+          <input id="emp-vtotal-${e.id}" type="number" value="${e.valor_total||0}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Valor da parcela (R$)</label>
+          <input id="emp-vparcela-${e.id}" type="number" step="0.01" value="${e.valor_parcela||0}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Parcelas pagas</label>
+          <input id="emp-ppagas-${e.id}" type="number" value="${e.parcelas_pagas||0}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Parcelas em aberto</label>
+          <input id="emp-pabertas-${e.id}" type="number" value="${e.parcelas_abertas||0}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Status</label>
+          <select id="emp-status-${e.id}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
+            <option value="em_dia"  ${e.status==='em_dia' ?'selected':''}>✓ Em dia</option>
+            <option value="vencido" ${e.status==='vencido'?'selected':''}>⚠️ Vencido</option>
+            <option value="parcial" ${e.status==='parcial'?'selected':''}>◑ Parcial</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Valor pago (se parcial)</label>
+          <input id="emp-vparcial-${e.id}" type="number" step="0.01" value="${e.valor_parcial||0}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
+        </div>
+        <div style="grid-column:1/-1">
+          <label style="font-size:11px;color:var(--text3);font-weight:600">Observações</label>
+          <input id="emp-obs-${e.id}" value="${e.obs||''}" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;font-size:13px;box-sizing:border-box;margin-top:3px">
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-        <div style="background:var(--surface2);border-radius:8px;padding:12px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Valor contratado</div>
-          <div style="font-weight:700;color:var(--text);font-size:14px">${fmt(emp.valor_total)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div style="font-size:13px;color:var(--text2)">
+          Saldo devedor: <strong style="color:#C4411A">${fmt(saldo)}</strong>
+          ${total>0 ? ` · ${pct.toFixed(1)}% quitado` : ''}
         </div>
-        <div style="background:var(--surface2);border-radius:8px;padding:12px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Total pago (sist.)</div>
-          <div style="font-weight:700;color:var(--accent);font-size:14px">${fmt(c.totalPagoSistema)}</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:8px;padding:12px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Saldo devedor</div>
-          <div style="font-weight:700;color:var(--accent2);font-size:14px">${fmt(c.saldoDevedor)}</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:8px;padding:12px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Parcelas restantes</div>
-          <div style="font-weight:700;color:var(--blue);font-size:14px">${c.parcelasRestantes}x de ${fmt(emp.parcela_valor)}</div>
-        </div>
+        <button class="btn primary" onclick="salvarEmprestimo('${e.id}')"><i class="ti ti-check"></i> Salvar</button>
       </div>
-      <div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text3);margin-bottom:6px">
-          <span>${emp.parcelas_pagas} parcelas pagas${emp.parcial_pago ? ' + 1 parcial' : ''}</span>
-          <span>${c.parcelasRestantes} restantes · ${c.pctPago.toFixed(1)}% quitado</span>
+      ${total>0 ? `
+      <div style="margin-top:10px">
+        <div style="background:var(--surface2);border-radius:4px;height:6px;overflow:hidden">
+          <div style="background:${border};height:100%;width:${pct.toFixed(1)}%;border-radius:4px"></div>
         </div>
-        <div style="background:var(--surface2);border-radius:4px;height:8px;overflow:hidden">
-          <div style="background:${statusColor};height:100%;width:${c.pctPago.toFixed(1)}%;border-radius:4px;transition:width .3s"></div>
-        </div>
-      </div>
+      </div>` : ''}
     </div>`;
   }).join('');
 
+  const empty = list.length === 0 ? `<div style="text-align:center;padding:48px;color:var(--text3)">Nenhum empréstimo cadastrado.<br>Clique em "+ Novo Empréstimo" para começar.</div>` : '';
+
   document.getElementById('content').innerHTML = `
-    <div style="max-width:960px">
+    <div style="max-width:900px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
         <h2 style="font-size:20px;font-weight:700;color:var(--text)">🏦 Empréstimos</h2>
         <button class="btn primary" onclick="abrirModalNovoEmprestimo()"><i class="ti ti-plus"></i> Novo Empréstimo</button>
@@ -1950,21 +1898,21 @@ async function renderEmprestimos() {
       <div class="metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
         <div class="metric-card">
           <div class="metric-label">Saldo devedor total</div>
-          <div class="metric-value" style="color:var(--accent2)">${fmt(totalDivida)}</div>
-          <div class="metric-sub">${empsAtivos.length} empréstimos ativos</div>
+          <div class="metric-value" style="color:#C4411A">${fmt(totalDevedor)}</div>
+          <div class="metric-sub">${list.length} empréstimo(s) cadastrado(s)</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Próximas parcelas</div>
-          <div class="metric-value blue">${fmt(totalMensal)}</div>
-          <div class="metric-sub">vencimentos mais próximos</div>
+          <div class="metric-label">Parcelas do mês</div>
+          <div class="metric-value blue">${fmt(totalMes)}</div>
+          <div class="metric-sub">soma de todas as parcelas ativas</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">Em atraso</div>
-          <div class="metric-value" style="color:var(--amber)">${fmt(totalAtraso)}</div>
-          <div class="metric-sub">${emps.filter(e=>e.calc.temAtraso).length} empréstimo(s) com atraso</div>
+          <div class="metric-value" style="color:#B57A00">${fmt(totalAtraso)}</div>
+          <div class="metric-sub">${qtdAtraso} empréstimo(s) com pendência</div>
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:16px">${cards}</div>
+      <div style="display:flex;flex-direction:column;gap:16px">${cards}${empty}</div>
     </div>
 
     <!-- Modal Novo Empréstimo -->
@@ -1972,43 +1920,53 @@ async function renderEmprestimos() {
       <div style="background:#fff;border-radius:16px;padding:32px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
           <h3 style="font-size:17px;font-weight:700">Novo Empréstimo</h3>
-          <button onclick="fecharModalEmp()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">×</button>
+          <button onclick="fecharModalEmp()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text3)">×</button>
         </div>
-        <form id="form-emp" style="display:flex;flex-direction:column;gap:14px">
-          <div>
-            <label style="font-size:12px;font-weight:600;color:var(--text2)">Nome do empréstimo *</label>
-            <input id="emp-nome" type="text" placeholder="Ex: Empréstimo Sicredi PRONAMP" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
-          </div>
-          <div>
-            <label style="font-size:12px;font-weight:600;color:var(--text2)">Instituição *</label>
-            <input id="emp-inst" type="text" placeholder="Ex: Sicredi" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+        <form id="form-emp" style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--text2)">Nome *</label>
+              <input id="emp-nome" type="text" placeholder="Ex: Empréstimo PRONAMP" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--text2)">Instituição</label>
+              <input id="emp-inst" type="text" placeholder="Ex: Sicredi" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+            </div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div>
-              <label style="font-size:12px;font-weight:600;color:var(--text2)">Valor total contratado *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text2)">Valor total contratado</label>
               <input id="emp-valor" type="number" step="0.01" placeholder="0,00" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
             </div>
-            <div>
-              <label style="font-size:12px;font-weight:600;color:var(--text2)">Nº de parcelas *</label>
-              <input id="emp-nparcelas" type="number" placeholder="Ex: 36" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text2)">Valor da parcela *</label>
               <input id="emp-vparcela" type="number" step="0.01" placeholder="0,00" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
             </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div>
-              <label style="font-size:12px;font-weight:600;color:var(--text2)">Data 1ª parcela *</label>
-              <input id="emp-data" type="date" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+              <label style="font-size:12px;font-weight:600;color:var(--text2)">Parcelas pagas</label>
+              <input id="emp-ppagas" type="number" value="0" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
             </div>
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--text2)">Parcelas em aberto</label>
+              <input id="emp-pabertas" type="number" value="0" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text2)">Status</label>
+            <select id="emp-status" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+              <option value="em_dia">✓ Em dia</option>
+              <option value="vencido">⚠️ Vencido</option>
+              <option value="parcial">◑ Parcial</option>
+            </select>
           </div>
           <div>
             <label style="font-size:12px;font-weight:600;color:var(--text2)">Observações</label>
             <input id="emp-obs" type="text" placeholder="Opcional" style="width:100%;margin-top:4px;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
           </div>
         </form>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:24px">
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
           <button class="btn" onclick="fecharModalEmp()">Cancelar</button>
           <button class="btn primary" onclick="salvarNovoEmprestimo()"><i class="ti ti-check"></i> Cadastrar</button>
         </div>
