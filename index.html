@@ -1773,6 +1773,27 @@ async function salvarEmprestimo(id) {
   await renderEmprestimos();
 }
 
+async function pagarParcelaMes(id) {
+  const list = await getEmprestimos();
+  const emp = list.find(e => e.id === id);
+  if (!emp) return;
+  if (!confirm(`Confirma pagamento da parcela de ${fmt(emp.valor_parcela)} do "${emp.nome}"?\n\nIsso vai atualizar:\n• Parcelas pagas: ${emp.parcelas_pagas} → ${emp.parcelas_pagas+1}\n• Parcelas em aberto: ${emp.parcelas_abertas} → ${emp.parcelas_abertas-1}`)) return;
+
+  const novasPagas   = (emp.parcelas_pagas||0) + 1;
+  const novasAbertas = Math.max(0, (emp.parcelas_abertas||0) - 1);
+  const novoStatus   = novasAbertas === 0 ? 'quitado' : 'em_dia';
+
+  await db('update', 'emprestimos', {
+    id,
+    parcelas_pagas: novasPagas,
+    parcelas_abertas: novasAbertas,
+    status: novoStatus,
+    valor_parcial: 0
+  });
+  await renderEmprestimos();
+  if (novasAbertas === 0) alert(`✅ "${emp.nome}" totalmente quitado!`);
+}
+
 async function deletarEmprestimo(id, nome) {
   if (!confirm(`Excluir "${nome}"?`)) return;
   await db('delete', 'emprestimos', { id });
@@ -1808,13 +1829,17 @@ async function salvarNovoEmprestimo() {
 async function renderEmprestimos() {
   const list = await getEmprestimos();
 
-  const totalDevedor  = list.reduce((s,e) => s + ((e.parcelas_abertas||0) * (e.valor_parcela||0)), 0);
-  const totalMes      = list.reduce((s,e) => s + (e.valor_parcela||0), 0);
-  const totalAtraso   = list.filter(e => e.status === 'vencido' || e.status === 'parcial')
+  const ativos0       = list.filter(e => e.status !== 'quitado');
+  const totalDevedor  = ativos0.reduce((s,e) => s + ((e.parcelas_abertas||0) * (e.valor_parcela||0)), 0);
+  const totalMes      = ativos0.reduce((s,e) => s + (e.valor_parcela||0), 0);
+  const totalAtraso   = ativos0.filter(e => e.status === 'vencido' || e.status === 'parcial')
                             .reduce((s,e) => s + (e.status === 'parcial' ? ((e.valor_parcela||0) - (e.valor_parcial||0)) : (e.valor_parcela||0)), 0);
-  const qtdAtraso     = list.filter(e => e.status === 'vencido' || e.status === 'parcial').length;
+  const qtdAtraso     = ativos0.filter(e => e.status === 'vencido' || e.status === 'parcial').length;
 
-  const cards = list.map(e => {
+  const ativos   = list.filter(e => e.status !== 'quitado');
+  const quitados  = list.filter(e => e.status === 'quitado');
+
+  const cards = ativos.map(e => {
     const saldo = (e.parcelas_abertas||0) * (e.valor_parcela||0);
     const total = (e.valor_total||0);
     const pct   = total > 0 ? Math.min(100, ((total - saldo) / total * 100)) : 0;
@@ -1876,7 +1901,10 @@ async function renderEmprestimos() {
           Saldo devedor: <strong style="color:#C4411A">${fmt(saldo)}</strong>
           ${total>0 ? ` · ${pct.toFixed(1)}% quitado` : ''}
         </div>
-        <button class="btn primary" onclick="salvarEmprestimo('${e.id}')"><i class="ti ti-check"></i> Salvar</button>
+        <div style="display:flex;gap:8px">
+          ${e.status !== 'quitado' ? `<button class="btn" onclick="pagarParcelaMes('${e.id}')" style="background:#eaf4ee;color:#2A5C45;border:none"><i class="ti ti-coin"></i> Pagar parcela do mês</button>` : ''}
+          <button class="btn primary" onclick="salvarEmprestimo('${e.id}')"><i class="ti ti-check"></i> Salvar</button>
+        </div>
       </div>
       ${total>0 ? `
       <div style="margin-top:10px">
@@ -1887,7 +1915,25 @@ async function renderEmprestimos() {
     </div>`;
   }).join('');
 
-  const empty = list.length === 0 ? `<div style="text-align:center;padding:48px;color:var(--text3)">Nenhum empréstimo cadastrado.<br>Clique em "+ Novo Empréstimo" para começar.</div>` : '';
+  const empty = ativos.length === 0 ? `<div style="text-align:center;padding:48px;color:var(--text3)">Nenhum empréstimo ativo.<br>Clique em "+ Novo Empréstimo" para cadastrar.</div>` : '';
+
+  const quitadosSection = quitados.length > 0 ? `
+    <div style="margin-top:32px">
+      <div style="font-size:13px;font-weight:600;color:var(--text3);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">✓ Quitados (${quitados.length})</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${quitados.map(e => `
+        <div style="background:#f9f9f9;border-radius:10px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;color:var(--text3)">
+          <div>
+            <span style="font-weight:600;color:var(--text2)">${e.nome}</span>
+            <span style="font-size:12px;margin-left:8px">${e.instituicao||''}</span>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center">
+            <span style="font-size:12px">${e.parcelas_pagas} parcelas pagas · ${fmt(e.valor_total||0)}</span>
+            <button onclick="deletarEmprestimo('${e.id}','${e.nome}')" style="background:none;border:none;cursor:pointer;color:#ccc;font-size:14px">🗑</button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>` : '';
 
   document.getElementById('content').innerHTML = `
     <div style="max-width:900px">
@@ -1899,7 +1945,7 @@ async function renderEmprestimos() {
         <div class="metric-card">
           <div class="metric-label">Saldo devedor total</div>
           <div class="metric-value" style="color:#C4411A">${fmt(totalDevedor)}</div>
-          <div class="metric-sub">${list.length} empréstimo(s) cadastrado(s)</div>
+          <div class="metric-sub">${ativos0.length} empréstimo(s) ativo(s)</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">Parcelas do mês</div>
@@ -1913,6 +1959,7 @@ async function renderEmprestimos() {
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:16px">${cards}${empty}</div>
+      ${quitadosSection}
     </div>
 
     <!-- Modal Novo Empréstimo -->
