@@ -227,17 +227,11 @@ if (sessionStorage.getItem('ds_auth') === '1') {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Tipo</label>
-        <select class="form-select" id="f-tipo"><option value="receber">A Receber</option><option value="pagar">A Pagar</option></select>
+        <select class="form-select" id="f-tipo" onchange="atualizarCategorias(this.value)"><option value="receber">A Receber</option><option value="pagar">A Pagar</option></select>
       </div>
       <div class="form-group">
-        <label class="form-label">Categoria</label>
-        <select class="form-select" id="f-cat">
-          <option>Projeto Estrutural</option><option>Projeto de Fundação</option><option>Projeto Estrutural e Fundação</option>
-          <option>Acompanhamento Técnico</option><option>ATP</option>
-          <option>Serviços de engenharia</option><option>Projetos BIM</option><option>ART / taxas</option>
-          <option>Consultoria técnica</option><option>Folha de pagamento</option><option>Aluguel / utilities</option>
-          <option>Software / licenças</option><option>Impostos</option><option>Empréstimo</option><option>Outros</option>
-        </select>
+        <label class="form-label" style="display:flex;justify-content:space-between">Categoria <a href="#" onclick="abrirGerenciarCats();return false" style="font-size:11px;color:var(--accent);font-weight:600">+ Gerenciar</a></label>
+        <select class="form-select" id="f-cat"></select>
       </div>
     </div>
     <div class="form-group">
@@ -496,6 +490,71 @@ if (sessionStorage.getItem('ds_auth') === '1') {
 const SUPA_URL = 'https://xybetxtvkrgpglzemdbw.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5YmV0eHR2a3JncGdsemVtZGJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2OTA4NjcsImV4cCI6MjA5NDI2Njg2N30.Q89He5H5rTRNVD30jUF-gIBaWXsDOZixYtyjWdj-CGs';
 
+// ===== CATEGORIAS =====
+const CATS_DEFAULT = {
+  receber: ['Projeto Estrutural','Projeto de Fundação','Projeto Estrutural e Fundação','Acompanhamento Técnico','ATP','Serviços de engenharia','Empréstimos','Consultoria técnica'],
+  pagar:   ['Folha de pagamento','Aluguel / utilities','Software / licenças','Impostos','Empréstimo','Outros']
+};
+
+function getCats(tipo) {
+  const key = 'cats_' + tipo;
+  const saved = localStorage.getItem(key);
+  return saved ? JSON.parse(saved) : CATS_DEFAULT[tipo] || [];
+}
+
+function saveCats(tipo, lista) {
+  localStorage.setItem('cats_' + tipo, JSON.stringify(lista));
+}
+
+function atualizarCategorias(tipo, valorAtual) {
+  const sel = document.getElementById('f-cat');
+  if (!sel) return;
+  const cats = getCats(tipo || 'receber');
+  sel.innerHTML = cats.map(c => `<option value="${c}" ${c===valorAtual?'selected':''}>${c}</option>`).join('');
+}
+
+function abrirGerenciarCats() {
+  const tipo = document.getElementById('f-tipo')?.value || 'receber';
+  renderGerenciarCats(tipo);
+  document.getElementById('modal-cats').style.display = 'flex';
+}
+
+function fecharGerenciarCats() {
+  document.getElementById('modal-cats').style.display = 'none';
+}
+
+function renderGerenciarCats(tipo) {
+  document.getElementById('cats-tipo-sel').value = tipo;
+  const cats = getCats(tipo);
+  document.getElementById('cats-lista').innerHTML = cats.map((c,i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f9f9f9;border-radius:7px;margin-bottom:6px">
+      <span style="font-size:14px">${c}</span>
+      <button onclick="removerCat('${tipo}',${i})" style="background:none;border:none;cursor:pointer;color:#C4411A;font-size:16px">×</button>
+    </div>`).join('');
+}
+
+function removerCat(tipo, idx) {
+  const cats = getCats(tipo);
+  cats.splice(idx, 1);
+  saveCats(tipo, cats);
+  renderGerenciarCats(tipo);
+  atualizarCategorias(document.getElementById('f-tipo')?.value);
+}
+
+function adicionarCat() {
+  const tipo = document.getElementById('cats-tipo-sel').value;
+  const nome = document.getElementById('cats-nova').value.trim();
+  if (!nome) return;
+  const cats = getCats(tipo);
+  if (cats.includes(nome)) { alert('Categoria já existe!'); return; }
+  cats.push(nome);
+  saveCats(tipo, cats);
+  document.getElementById('cats-nova').value = '';
+  renderGerenciarCats(tipo);
+  atualizarCategorias(document.getElementById('f-tipo')?.value);
+}
+
+
 const db = async (action, table, data=null, query=null) => {
   const headers = {
     'apikey': SUPA_KEY,
@@ -662,7 +721,9 @@ function changeMes(v){currentMes=v;document.getElementById('periodo-label').text
 function openAdd(){
   editingId=null;
   document.getElementById('modal-add-title').textContent='Novo Lançamento';
-  document.getElementById('f-tipo').value=currentPage==='pagar'?'pagar':'receber';
+  const tipoInicial = currentPage==='pagar'?'pagar':'receber';
+  document.getElementById('f-tipo').value = tipoInicial;
+  atualizarCategorias(tipoInicial);
   ['f-desc','f-valor','f-parte','f-nf','f-contrato','f-obs'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('f-venc').value=currentMes+'-15';
   document.getElementById('f-status').value='pendente';
@@ -684,7 +745,7 @@ async function openEdit(id){
   document.getElementById('f-valor').value=item.valor;
   document.getElementById('f-venc').value=item.venc;
   document.getElementById('f-parte').value=item.parte||'';
-  document.getElementById('f-cat').value=item.cat||'Outros';
+  atualizarCategorias(item.tipo, item.cat);
   document.getElementById('f-status').value=item.status;
   document.getElementById('f-nf').value=item.nf||'';
   document.getElementById('f-contrato').value=item.contrato||'';
@@ -2226,12 +2287,60 @@ function exportarRelPDF(){
   const win=window.open('','_blank');
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${titulo}</title>
   <style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 24px;color:#1A1814;font-size:13px;line-height:1.7}h1{font-size:20px;color:#2A5C45;border-bottom:2px solid #2A5C45;padding-bottom:8px;margin-bottom:24px}h3{font-size:14px;font-weight:600;margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid #eee}p{color:#444;margin-bottom:8px}ul{padding-left:18px;margin-bottom:12px}li{color:#555;margin-bottom:4px}strong{color:#1A1814}.footer{margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center}</style>
-  </head><body><h1>DellaSá Estruturas — ${titulo}</h1>${analise}<div class="footer">Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')} — Sistema Financeiro DellaSá</div><script>window.onload=()=>window.print()<\/script></body></html>`);
+  </head><body><h1>DellaSá Estruturas — ${titulo}</h1>${analise}<div class="footer">Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')} — Sistema Financeiro DellaSá</div><script>window.onload=()=>window.print()<\/script><!-- Modal Gerenciar Categorias -->
+<div id="modal-cats" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:2000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:28px;width:100%;max-width:420px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 style="font-size:16px;font-weight:700">Gerenciar Categorias</h3>
+      <button onclick="fecharGerenciarCats()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text3)">×</button>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:12px;font-weight:600;color:var(--text2)">Tipo</label>
+      <select id="cats-tipo-sel" onchange="renderGerenciarCats(this.value)" style="width:100%;margin-top:4px;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+        <option value="receber">A Receber</option>
+        <option value="pagar">A Pagar</option>
+      </select>
+    </div>
+    <div id="cats-lista" style="margin-bottom:16px"></div>
+    <div style="display:flex;gap:8px">
+      <input id="cats-nova" type="text" placeholder="Nova categoria..." onkeydown="if(event.key==='Enter')adicionarCat()" style="flex:1;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px">
+      <button class="btn primary" onclick="adicionarCat()"><i class="ti ti-plus"></i> Adicionar</button>
+    </div>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;text-align:right">
+      <button class="btn" onclick="fecharGerenciarCats()">Fechar</button>
+    </div>
+  </div>
+</div>
+</body></html>`);
   win.document.close();
 }
 /* ========== FIM RELATÓRIOS ========== */
 
 render();
 </script>
+<!-- Modal Gerenciar Categorias -->
+<div id="modal-cats" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:2000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:28px;width:100%;max-width:420px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 style="font-size:16px;font-weight:700">Gerenciar Categorias</h3>
+      <button onclick="fecharGerenciarCats()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text3)">×</button>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:12px;font-weight:600;color:var(--text2)">Tipo</label>
+      <select id="cats-tipo-sel" onchange="renderGerenciarCats(this.value)" style="width:100%;margin-top:4px;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
+        <option value="receber">A Receber</option>
+        <option value="pagar">A Pagar</option>
+      </select>
+    </div>
+    <div id="cats-lista" style="margin-bottom:16px"></div>
+    <div style="display:flex;gap:8px">
+      <input id="cats-nova" type="text" placeholder="Nova categoria..." onkeydown="if(event.key==='Enter')adicionarCat()" style="flex:1;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px">
+      <button class="btn primary" onclick="adicionarCat()"><i class="ti ti-plus"></i> Adicionar</button>
+    </div>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;text-align:right">
+      <button class="btn" onclick="fecharGerenciarCats()">Fechar</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
