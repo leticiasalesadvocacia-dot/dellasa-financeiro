@@ -2167,8 +2167,7 @@ async function gerarAnaliseIA(mesPrincipal,mesPrevisao1,mesPrevisao2){
     const recMes=o.valor/o.parcelas;
     const saldoMes=r0.resultado+recMes;
     return `${o.cliente} (R$${o.valor.toFixed(0)}, ${o.parcelas}x de R$${recMes.toFixed(0)}/mês): resultado mensal passaria para R$${saldoMes.toFixed(0)}`;
-  }).join('
-');
+  }).join(' | ');
 
   // Empréstimos
   const emps=await getEmprestimos();
@@ -2177,8 +2176,7 @@ async function gerarAnaliseIA(mesPrincipal,mesPrevisao1,mesPrevisao2){
   const totalParcelasEmps=empsAtivos.reduce((s,e)=>s+(e.valor_parcela||0),0);
   const empsVencidos=empsAtivos.filter(e=>e.status==='vencido'||e.status==='parcial');
   const vlEmpsVencidos=empsVencidos.reduce((s,e)=>s+(e.status==='parcial'?((e.valor_parcela||0)-(e.valor_parcial||0)):e.valor_parcela||0),0);
-  const resumoEmps=empsAtivos.map(e=>`${e.nome} (${e.instituicao}): ${e.parcelas_abertas}x de R$${(e.valor_parcela||0).toFixed(0)}, saldo R$${((e.parcelas_abertas||0)*(e.valor_parcela||0)).toFixed(0)}, status: ${e.status}`).join('
-');
+  const resumoEmps=empsAtivos.map(e=>`${e.nome} (${e.instituicao}): ${e.parcelas_abertas}x de R$${(e.valor_parcela||0).toFixed(0)}, saldo R$${((e.parcelas_abertas||0)*(e.valor_parcela||0)).toFixed(0)}, status: ${e.status}`).join(' | ');
 
   const prompt=`Você é analista financeiro sênior da DellaSá Estruturas Ltda, escritório de engenharia estrutural em Balneário Camboriú/SC. Analise os dados completos abaixo e gere relatório executivo detalhado em português brasileiro.
 
@@ -2190,10 +2188,8 @@ async function gerarAnaliseIA(mesPrincipal,mesPrevisao1,mesPrevisao2){
 - Top receitas por categoria: ${r0.recCats.slice(0,5).map(([c,v])=>`${c}: R$${v.toFixed(0)}`).join(', ')||'nenhum'}
 - Top despesas por categoria: ${r0.depCats.slice(0,5).map(([c,v])=>`${c}: R$${v.toFixed(0)}`).join(', ')||'nenhum'}
 
-${r1?`## PREVISÃO ${getMesLabel(mesPrevisao1)}
-- Receitas: R$ ${r1.tRec.toFixed(2)} | Despesas: R$ ${r1.tDep.toFixed(2)} | Resultado: R$ ${r1.resultado.toFixed(2)} | Meta: R$ ${(metas[mesPrevisao1]||0).toFixed(2)}`:''}
-${r2?`## PREVISÃO ${getMesLabel(mesPrevisao2)}
-- Receitas: R$ ${r2.tRec.toFixed(2)} | Despesas: R$ ${r2.tDep.toFixed(2)} | Resultado: R$ ${r2.resultado.toFixed(2)} | Meta: R$ ${(metas[mesPrevisao2]||0).toFixed(2)}`:''}
+${r1?'## PREVISÃO '+getMesLabel(mesPrevisao1)+' | Receitas: R$'+r1.tRec.toFixed(2)+' | Despesas: R$'+r1.tDep.toFixed(2)+' | Resultado: R$'+r1.resultado.toFixed(2)+' | Meta: R$'+(metas[mesPrevisao1]||0).toFixed(2):''}
+${r2?'## PREVISÃO '+getMesLabel(mesPrevisao2)+' | Receitas: R$'+r2.tRec.toFixed(2)+' | Despesas: R$'+r2.tDep.toFixed(2)+' | Resultado: R$'+r2.resultado.toFixed(2)+' | Meta: R$'+(metas[mesPrevisao2]||0).toFixed(2):''}
 
 ## PIPELINE DE ORÇAMENTOS
 - Total enviados: ${orcsEnviados.length} orçamentos | Valor total em aberto: R$ ${vlPipeline.toFixed(2)}
