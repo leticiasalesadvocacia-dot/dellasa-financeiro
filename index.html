@@ -450,8 +450,8 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       </label>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-      <button class="btn" id="toggle-mes-ant-cancel">Cancelar</button>
-      <button class="btn primary" id="toggle-mes-ant-ok"><i class="ti ti-check"></i> Confirmar</button>
+      <button class="btn" onclick="cancelarToggleMes()">Cancelar</button>
+      <button class="btn primary" onclick="confirmarToggleMes()"><i class="ti ti-check"></i> Confirmar</button>
     </div>
   </div>
 </div>
@@ -898,37 +898,39 @@ async function confirmarDelete(id){
   if(confirm(msg)){await delItem(id);showToast('Excluído.');render();}
 }
 
+// Estado global para o modal de mês anterior
+let _toggleMesId=null, _toggleMesNovoStatus=null;
+
 async function toggleStatus(id){
   const all=await getData();
   const item=all.find(x=>x.id===id);if(!item)return;
   const novoStatus=item.tipo==='receber'?(item.status==='recebido'?'pendente':'recebido'):(item.status==='pago'?'pendente':'pago');
-  // Se vai marcar como pago (despesa) ou recebido (receita), pergunta sobre mês anterior
-  if((novoStatus==='pago'||novoStatus==='recebido')&&item.nao_contabiliza!==true){
-    const resposta=await perguntarMesAnterior(item);
-    if(resposta===null)return; // cancelou
-    await updateItem(id,{status:novoStatus,nao_contabiliza:resposta});
-  } else {
-    // Ao desmarcar pagamento, remove flag nao_contabiliza
-    await updateItem(id,{status:novoStatus,nao_contabiliza:false});
-  }
-  showToast('Status atualizado.');render();
-}
-
-function perguntarMesAnterior(item){
-  return new Promise(resolve=>{
+  if(novoStatus==='pago'||novoStatus==='recebido'){
+    // Abre modal perguntando sobre mês anterior
+    _toggleMesId=id;
+    _toggleMesNovoStatus=novoStatus;
     document.getElementById('toggle-mes-ant-desc').textContent=item.desc+' — '+fmt(item.valor);
     document.getElementById('toggle-mes-ant-check').checked=false;
     document.getElementById('modal-toggle-mes').classList.add('open');
-    document.getElementById('toggle-mes-ant-ok').onclick=()=>{
-      const v=document.getElementById('toggle-mes-ant-check').checked;
-      document.getElementById('modal-toggle-mes').classList.remove('open');
-      resolve(v);
-    };
-    document.getElementById('toggle-mes-ant-cancel').onclick=()=>{
-      document.getElementById('modal-toggle-mes').classList.remove('open');
-      resolve(null);
-    };
-  });
+  } else {
+    // Desmarcando — vai direto, remove flag
+    await updateItem(id,{status:novoStatus,nao_contabiliza:false});
+    showToast('Status atualizado.');render();
+  }
+}
+
+async function confirmarToggleMes(){
+  if(!_toggleMesId)return;
+  const mesAnterior=document.getElementById('toggle-mes-ant-check').checked;
+  document.getElementById('modal-toggle-mes').classList.remove('open');
+  await updateItem(_toggleMesId,{status:_toggleMesNovoStatus,nao_contabiliza:mesAnterior});
+  _toggleMesId=null;_toggleMesNovoStatus=null;
+  showToast('Status atualizado.');render();
+}
+
+function cancelarToggleMes(){
+  document.getElementById('modal-toggle-mes').classList.remove('open');
+  _toggleMesId=null;_toggleMesNovoStatus=null;
 }
 
 function toggleParcelas(id){
