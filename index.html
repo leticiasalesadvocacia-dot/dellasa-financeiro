@@ -19,7 +19,14 @@
 }
 html,body{height:100%;font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;}
 .app{display:flex;height:100vh;overflow:hidden;}
-.sidebar{width:220px;min-width:220px;background:var(--text);color:#fff;display:flex;flex-direction:column;}
+.sidebar{width:220px;min-width:220px;background:var(--text);color:#fff;display:flex;flex-direction:column;transition:width .2s ease,min-width .2s ease;}
+.sidebar.collapsed{width:56px;min-width:56px;}
+.sidebar.collapsed .sidebar-logo .name,.sidebar.collapsed .sidebar-logo .sub,.sidebar.collapsed .nav-label{display:none;}
+.sidebar.collapsed .nav-item{justify-content:center;padding:9px 0;}
+.sidebar.collapsed .nav-item i{width:auto;}
+.sidebar.collapsed .sidebar-bottom .nav-item{justify-content:center;padding:9px 0;}
+.sidebar-toggle{background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.5);padding:6px;border-radius:6px;transition:all .15s;display:flex;align-items:center;justify-content:center;}
+.sidebar-toggle:hover{background:rgba(255,255,255,0.1);color:#fff;}
 .sidebar-logo{padding:20px 20px 16px;border-bottom:1px solid rgba(255,255,255,0.08);}
 .sidebar-logo .name{font-size:15px;font-weight:700;letter-spacing:.02em;color:#fff;}
 .sidebar-logo .sub{font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:.08em;text-transform:uppercase;margin-top:2px;}
@@ -55,6 +62,17 @@ html,body{height:100%;font-family:var(--font);background:var(--bg);color:var(--t
 .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
 .filter-select{padding:5px 10px;border:1px solid var(--border2);border-radius:7px;font-size:12px;background:var(--bg);color:var(--text);font-family:var(--font);cursor:pointer;}
 .search-input{padding:5px 10px;border:1px solid var(--border2);border-radius:7px;font-size:12px;background:var(--bg);color:var(--text);font-family:var(--font);width:160px;}
+.search-input.wide{width:200px;}
+.date-filter-input{padding:5px 10px;border:1px solid var(--border2);border-radius:7px;font-size:12px;background:var(--bg);color:var(--text);font-family:var(--mono);cursor:pointer;}
+.date-filter-input:focus{outline:none;border-color:var(--accent);}
+.filter-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);}
+.filter-label{font-size:11px;color:var(--text3);font-weight:500;}
+.btn-clear-filter{padding:4px 8px;font-size:11px;background:none;border:1px solid var(--border2);border-radius:6px;cursor:pointer;color:var(--text3);font-family:var(--font);}
+.btn-clear-filter:hover{color:var(--accent2);border-color:var(--accent2);}
+.tab-toggle{display:flex;gap:0;border:1px solid var(--border2);border-radius:8px;overflow:hidden;}
+.tab-btn{padding:5px 14px;font-size:12px;font-weight:500;background:var(--surface);border:none;cursor:pointer;color:var(--text2);font-family:var(--font);transition:all .15s;}
+.tab-btn.active{background:var(--accent);color:#fff;}
+.tab-btn:hover:not(.active){background:var(--surface2);}
 .search-input:focus,.filter-select:focus{outline:none;border-color:var(--accent);}
 table{width:100%;border-collapse:collapse;}
 thead th{padding:10px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);border-bottom:1px solid var(--border);font-weight:500;background:var(--bg);}
@@ -173,26 +191,29 @@ if (sessionStorage.getItem('ds_auth') === '1') {
 </script>
 
 <div class="app">
-  <div class="sidebar">
-    <div class="sidebar-logo">
-      <div class="name">DellaSá</div>
-      <div class="sub">Financeiro</div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-logo" style="display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div class="name">DellaSá</div>
+        <div class="sub">Financeiro</div>
+      </div>
+      <button class="sidebar-toggle" onclick="toggleSidebar()" title="Recolher menu"><i class="ti ti-layout-sidebar-left-collapse" id="sidebar-toggle-icon"></i></button>
     </div>
     <nav class="sidebar-nav">
-      <button class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
-      <button class="nav-item" onclick="showPage('receber')" id="nav-receber"><i class="ti ti-arrow-down-circle"></i> A Receber</button>
-      <button class="nav-item" onclick="showPage('pagar')" id="nav-pagar"><i class="ti ti-arrow-up-circle"></i> A Pagar</button>
-      <button class="nav-item" onclick="showPage('fluxo')" id="nav-fluxo"><i class="ti ti-chart-line"></i> Fluxo de Caixa</button>
-      <button class="nav-item" onclick="showPage('dre')" id="nav-dre"><i class="ti ti-report-analytics"></i> DRE</button>
-      <button class="nav-item" onclick="showPage('resultado')" id="nav-resultado"><i class="ti ti-trophy"></i> Resultado do Mês</button>
-      <button class="nav-item" onclick="showPage('orcamentos')" id="nav-orcamentos"><i class="ti ti-file-dollar"></i> Orçamentos</button>
-      <button class="nav-item" onclick="showPage('emprestimos')" id="nav-emprestimos"><i class="ti ti-building-bank"></i> Empréstimos</button>
-      <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i> Proj. Pausados</button>
-      <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i> Relatórios IA</button>
+      <button class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard"><i class="ti ti-layout-dashboard"></i><span class="nav-label"> Dashboard</span></button>
+      <button class="nav-item" onclick="showPage('receber')" id="nav-receber"><i class="ti ti-arrow-down-circle"></i><span class="nav-label"> A Receber</span></button>
+      <button class="nav-item" onclick="showPage('pagar')" id="nav-pagar"><i class="ti ti-arrow-up-circle"></i><span class="nav-label"> A Pagar</span></button>
+      <button class="nav-item" onclick="showPage('fluxo')" id="nav-fluxo"><i class="ti ti-chart-line"></i><span class="nav-label"> Fluxo de Caixa</span></button>
+      <button class="nav-item" onclick="showPage('dre')" id="nav-dre"><i class="ti ti-report-analytics"></i><span class="nav-label"> DRE</span></button>
+      <button class="nav-item" onclick="showPage('resultado')" id="nav-resultado"><i class="ti ti-trophy"></i><span class="nav-label"> Resultado do Mês</span></button>
+      <button class="nav-item" onclick="showPage('orcamentos')" id="nav-orcamentos"><i class="ti ti-file-dollar"></i><span class="nav-label"> Orçamentos</span></button>
+      <button class="nav-item" onclick="showPage('emprestimos')" id="nav-emprestimos"><i class="ti ti-building-bank"></i><span class="nav-label"> Empréstimos</span></button>
+      <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i><span class="nav-label"> Proj. Pausados</span></button>
+      <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i><span class="nav-label"> Relatórios IA</span></button>
     </nav>
     <div class="sidebar-bottom">
-      <button class="nav-item" onclick="openImport()"><i class="ti ti-file-import"></i> Importar planilha</button>
-      <button class="nav-item" onclick="exportarExcel()"><i class="ti ti-file-spreadsheet"></i> Exportar Excel</button>
+      <button class="nav-item" onclick="openImport()"><i class="ti ti-file-import"></i><span class="nav-label"> Importar planilha</span></button>
+      <button class="nav-item" onclick="exportarExcel()"><i class="ti ti-file-spreadsheet"></i><span class="nav-label"> Exportar Excel</span></button>
     </div>
   </div>
 
@@ -733,7 +754,8 @@ const genId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
 const _nowMes=(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');})();
 let currentPage='dashboard', currentMes=_nowMes, editingId=null, importData=[];
-let tblStatus='todos', tblSearch='';
+let tblStatus='todos', tblSearch='', tblDe='', tblAte='', tblDia='', tblModoData='mes';
+let _cacheAllForFilter=null;
 
 const fmt=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 const fmtDate=d=>{if(!d)return'—';const p=d.split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d;};
@@ -742,8 +764,17 @@ const addDias=(dateStr,dias)=>{const d=new Date(dateStr+'T12:00:00');d.setDate(d
 
 function showToast(msg,dur=2800){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur);}
 
+function toggleSidebar(){
+  const sb=document.getElementById('sidebar');
+  const icon=document.getElementById('sidebar-toggle-icon');
+  sb.classList.toggle('collapsed');
+  const collapsed=sb.classList.contains('collapsed');
+  icon.className=collapsed?'ti ti-layout-sidebar-left-expand':'ti ti-layout-sidebar-left-collapse';
+  try{localStorage.setItem('ds_sidebar',collapsed?'1':'0');}catch(e){}
+}
+
 function showPage(p){
-  currentPage=p;tblStatus='todos';tblSearch='';
+  currentPage=p;tblStatus='todos';tblSearch='';tblDe='';tblAte='';tblDia='';tblModoData='mes';
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('nav-'+p)?.classList.add('active');
   const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios com IA'};
@@ -1111,6 +1142,7 @@ async function render(){
   showLoading();
   try{
     const all=await getData(), mes=currentMes;
+    _cacheAllForFilter=all;
     const doMes=all.filter(x=>x.mes===mes);
     const recMes=doMes.filter(x=>x.tipo==='receber');
     const pagMes=doMes.filter(x=>x.tipo==='pagar');
@@ -1187,7 +1219,7 @@ async function recalcularCaixa(){
 async function salvarSaldoInicial(){
   const val=parseFloat(document.getElementById('saldo-inicial-input').value)||0;
   await saveSaldo(currentMes,val);
-  showToast('Saldo inicial salvo!');
+  showToast('Saldo em conta salvo!');
   caixaSegurando=new Set();
   render();
 }
@@ -1228,7 +1260,7 @@ async function renderDashboard(all,doMes,recMes,pagMes){
       <div style="padding:16px 18px">
         <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
           <div>
-            <label style="font-size:11px;color:var(--text2);font-weight:500;display:block;margin-bottom:4px">Saldo inicial do mês — quanto tinha na conta no dia 1º (R$)</label>
+            <label style="font-size:11px;color:var(--text2);font-weight:500;display:block;margin-bottom:4px">Saldo em conta no dia 1º (R$)</label>
             <div style="display:flex;gap:8px;align-items:center">
               <input id="saldo-inicial-input" type="number" step="0.01" value="${saldoInicial||''}" placeholder="0,00"
                 style="width:180px;padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-size:13px;background:var(--bg);color:var(--text);font-family:var(--mono)" />
@@ -1238,9 +1270,9 @@ async function renderDashboard(all,doMes,recMes,pagMes){
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
           <div style="padding:12px 14px;background:var(--blue-light);border-radius:10px">
-            <div style="font-size:11px;color:var(--blue);margin-bottom:4px;font-weight:500">Saldo inicial do mês</div>
+            <div style="font-size:11px;color:var(--blue);margin-bottom:4px;font-weight:500">Saldo em conta (dia 1º)</div>
             <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--blue)">${fmt(saldoInicial)}</div>
-            <div style="font-size:10px;color:var(--blue);opacity:.7;margin-top:3px">quanto tinha na conta no dia 1º</div>
+            <div style="font-size:10px;color:var(--blue);opacity:.7;margin-top:3px">valor informado manualmente</div>
           </div>
           <div style="padding:12px 14px;background:var(--surface2);border-radius:10px">
             <div style="font-size:11px;color:var(--text2);margin-bottom:4px;font-weight:500">Movimentação do mês</div>
@@ -1379,45 +1411,78 @@ function renderChartCat(items){
   },50);
 }
 
-function renderTabela(tipo,items){
-  const m=calcM(items);
+function renderTabela(tipo, allItems){
   const statusLabel=tipo==='receber'?'recebido':'pago';
-  const grupos={};
-  items.forEach(r=>{if(r.grupoId){if(!grupos[r.grupoId])grupos[r.grupoId]=[];grupos[r.grupoId].push(r);}});
-  let filtered=items.filter(x=>{
-    if(tblStatus!=='todos'&&x.status!==tblStatus)return false;
-    if(tblSearch&&!x.desc.toLowerCase().includes(tblSearch)&&!(x.parte||'').toLowerCase().includes(tblSearch)&&!(x.nf||'').toLowerCase().includes(tblSearch)&&!(x.contrato||'').toLowerCase().includes(tblSearch))return false;
+  const usandoPeriodo = tblModoData==='periodo' && (tblDe||tblAte);
+  let fonte = usandoPeriodo ? (_cacheAllForFilter||allItems) : allItems;
+
+  let filtered = fonte.filter(x => {
+    if(x.tipo !== tipo) return false;
+    if(usandoPeriodo){
+      if(tblDe && x.venc < tblDe) return false;
+      if(tblAte && x.venc > tblAte) return false;
+    }
+    if(tblDia){ const dia=x.venc?x.venc.split('-')[2]:''; if(dia!==tblDia.padStart(2,'0'))return false; }
+    if(tblStatus !== 'todos' && x.status !== tblStatus) return false;
+    if(tblSearch){
+      const q=tblSearch;
+      if(!((x.desc||'').toLowerCase().includes(q)||(x.parte||'').toLowerCase().includes(q)||(x.nf||'').toLowerCase().includes(q)||(x.contrato||'').toLowerCase().includes(q)||(x.cat||'').toLowerCase().includes(q)))return false;
+    }
     return true;
   });
+
+  const grupos={};
+  filtered.forEach(r=>{if(r.grupoId){if(!grupos[r.grupoId])grupos[r.grupoId]=[];grupos[r.grupoId].push(r);}});
   const seenGroups=new Set(),rows=[];
   filtered.forEach(r=>{
     if(r.grupoId){if(!seenGroups.has(r.grupoId)){seenGroups.add(r.grupoId);rows.push({...r,_isGroup:true,_grupo:grupos[r.grupoId]});}}
     else rows.push(r);
   });
+
+  const totalFilt=filtered.reduce((s,x)=>s+x.valor,0);
+  const realizadoFilt=filtered.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+x.valor,0);
+  const pendenteFilt=filtered.filter(x=>['pendente','vencido','parcial'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?x.valor-(x.pago_parcial||0):x.valor),0);
+  const tituloTabela=usandoPeriodo?`${tipo==='receber'?'A Receber':'A Pagar'} — ${tblDe?fmtDate(tblDe):'início'} até ${tblAte?fmtDate(tblAte):'hoje'}`:`${tipo==='receber'?'A Receber':'A Pagar'} — ${getMesLabel(currentMes)}`;
+  const temFiltroAtivo=tblSearch||tblStatus!=='todos'||tblDia||usandoPeriodo;
+
   document.getElementById('content').innerHTML=`
     <div class="metrics" style="grid-template-columns:repeat(3,1fr)">
-      <div class="metric-card"><div class="metric-label">Total ${tipo==='receber'?'a receber':'a pagar'}</div><div class="metric-value ${tipo==='receber'?'green':'red'}">${fmt(m.total)}</div></div>
-      <div class="metric-card"><div class="metric-label">${tipo==='receber'?'Recebido':'Pago'}</div><div class="metric-value green">${fmt(m.recebido)}</div></div>
-      <div class="metric-card"><div class="metric-label">Pendente + Vencido</div><div class="metric-value ${m.vencido>0?'red':'blue'}">${fmt(m.pendente+m.vencido)}</div></div>
+      <div class="metric-card"><div class="metric-label">Total ${tipo==='receber'?'a receber':'a pagar'}</div><div class="metric-value ${tipo==='receber'?'green':'red'}">${fmt(totalFilt)}</div>${temFiltroAtivo?`<div class="metric-sub">${filtered.length} itens filtrados</div>`:''}</div>
+      <div class="metric-card"><div class="metric-label">${tipo==='receber'?'Recebido':'Pago'}</div><div class="metric-value green">${fmt(realizadoFilt)}</div></div>
+      <div class="metric-card"><div class="metric-label">Pendente + Vencido</div><div class="metric-value ${pendenteFilt>0?'red':'blue'}">${fmt(pendenteFilt)}</div></div>
     </div>
     <div class="table-wrap">
       <div class="table-header">
-        <div class="table-title">${tipo==='receber'?'A Receber':'A Pagar'} — ${getMesLabel(currentMes)}</div>
-        <div class="filters">
-          <input class="search-input" id="tbl-search-input" placeholder="Buscar desc, NF, contrato..." value="${tblSearch}" />
-          <select class="filter-select" onchange="tblStatus=this.value;render()">
-            <option value="todos" ${tblStatus==='todos'?'selected':''}>Todos</option>
-            <option value="pendente" ${tblStatus==='pendente'?'selected':''}>Pendente</option>
-            <option value="${statusLabel}" ${tblStatus===statusLabel?'selected':''}>Realizado</option>
-            <option value="vencido" ${tblStatus==='vencido'?'selected':''}>Vencido</option>
-            <option value="parcial" ${tblStatus==='parcial'?'selected':''}>Parcial</option>
-          </select>
+        <div class="table-title">${tituloTabela}</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn export" onclick="exportarExcel()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-spreadsheet"></i> Exportar</button>
           <button class="btn export" onclick="exportarTabelaPDF('${tipo}')" style="padding:5px 10px;font-size:12px;background:var(--accent2-light);color:var(--accent2);border:1px solid var(--accent2)"><i class="ti ti-file-type-pdf"></i> PDF</button>
         </div>
       </div>
+      <div class="filter-row">
+        <div class="tab-toggle">
+          <button class="tab-btn ${tblModoData==='mes'?'active':''}" onclick="tblModoData='mes';render()">Mês atual</button>
+          <button class="tab-btn ${tblModoData==='periodo'?'active':''}" onclick="tblModoData='periodo';render()">Período livre</button>
+        </div>
+        ${tblModoData==='periodo'?`
+          <span class="filter-label">De</span>
+          <input type="date" class="date-filter-input" id="f-de" value="${tblDe}" onchange="tblDe=this.value;render()">
+          <span class="filter-label">Até</span>
+          <input type="date" class="date-filter-input" id="f-ate" value="${tblAte}" onchange="tblAte=this.value;render()">
+        `:''}
+        <input class="search-input wide" id="tbl-search-input" placeholder="Buscar desc, cliente, NF..." value="${tblSearch}" />
+        <select class="filter-select" onchange="tblStatus=this.value;render()">
+          <option value="todos" ${tblStatus==='todos'?'selected':''}>Todos status</option>
+          <option value="pendente" ${tblStatus==='pendente'?'selected':''}>Pendente</option>
+          <option value="${statusLabel}" ${tblStatus===statusLabel?'selected':''}>Realizado</option>
+          <option value="vencido" ${tblStatus==='vencido'?'selected':''}>Vencido</option>
+          <option value="parcial" ${tblStatus==='parcial'?'selected':''}>Parcial</option>
+        </select>
+        <input type="number" class="date-filter-input" id="f-dia" placeholder="Dia vcto" min="1" max="31" value="${tblDia}" style="width:76px" onchange="tblDia=this.value;render()" title="Filtrar por dia do vencimento">
+        ${temFiltroAtivo?`<button class="btn-clear-filter" onclick="tblStatus='todos';tblSearch='';tblDe='';tblAte='';tblDia='';tblModoData='mes';render()"><i class="ti ti-x" style="font-size:11px"></i> Limpar</button>`:''}
+      </div>
       ${rows.length===0?'<div class="empty"><i class="ti ti-inbox"></i><p>Nenhum lançamento encontrado.</p></div>':
-      '<table><thead><tr><th></th><th>Descrição</th><th>NF</th><th>Contrato</th><th>Parte</th><th>Venc.</th><th>Status</th><th class="td-right">Valor total</th><th class="td-right">Pago parcial</th><th></th></tr></thead><tbody>'+
+      '<table><thead><tr><th></th><th>Descrição</th><th>NF</th><th>Contrato</th><th>Parte</th><th>Venc.</th><th>Status</th><th class="td-right">Valor</th><th class="td-right">Pago parcial</th><th></th></tr></thead><tbody>'+
       rows.map(r=>{
         if(r._isGroup){
           const g=r._grupo,totalG=g.reduce((s,x)=>s+x.valor,0);
@@ -1436,39 +1501,42 @@ function renderTabela(tipo,items){
         const pagoParcial=r.pago_parcial||0;
         const ncBadge=r.nao_contabiliza?`<span title="Não contabilizado no caixa deste mês" style="display:inline-block;margin-left:6px;padding:1px 6px;background:#FFF8E1;color:#7B6200;border:1px solid #FFD54F;border-radius:10px;font-size:10px;font-weight:600">↩ mês ant.</span>`:'';
         const dataPagDisplay=r.data_pagamento?`<br><small style="color:var(--accent);font-size:10px">✓ pago ${fmtDate(r.data_pagamento)}</small>`:'';
-        return`<tr><td></td><td>${r.desc}${ncBadge}${r.obs?`<br><small style="color:var(--text3)">${r.obs}</small>`:''}</td>
-          <td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td><td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
-          <td style="color:var(--text2)">${r.parte||'—'}</td><td class="td-mono">${fmtDate(r.venc)}${dataPagDisplay}</td>
-          <td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td><td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
-          <td style="color:var(--text2)">${r.parte||'—'}</td><td class="td-mono">${fmtDate(r.venc)}</td>
+        return`<tr>
+          <td></td>
+          <td>${r.desc}${ncBadge}${r.obs?`<br><small style="color:var(--text3)">${r.obs}</small>`:''}</td>
+          <td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td>
+          <td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
+          <td style="color:var(--text2)">${r.parte||'—'}</td>
+          <td class="td-mono">${fmtDate(r.venc)}${dataPagDisplay}</td>
           <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')" title="Clique para alterar">${r.status}</span></td>
           <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(r.valor)}</td>
           <td class="td-right td-mono" style="color:var(--blue)">${pagoParcial>0?fmt(pagoParcial):'—'}</td>
           <td style="white-space:nowrap">
-            <button onclick="openParcial('${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);padding:2px 4px;font-size:13px" title="Registrar pagamento parcial"><i class="ti ti-coin"></i></button>
+            <button onclick="openParcial('${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);padding:2px 4px;font-size:13px" title="Pagamento parcial"><i class="ti ti-coin"></i></button>
             <button onclick="openEdit('${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:2px 4px;font-size:13px" title="Editar"><i class="ti ti-edit"></i></button>
             <button onclick="confirmarDelete('${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--accent2);padding:2px 4px;font-size:13px" title="Excluir"><i class="ti ti-trash"></i></button>
           </td></tr>`;
       }).join('')+'</tbody></table>'}
     </div>`;
 
-  // Bind search sem re-render a cada tecla
   const searchEl=document.getElementById('tbl-search-input');
   if(searchEl){
     searchEl.focus();
     searchEl.setSelectionRange(searchEl.value.length,searchEl.value.length);
-    searchEl.addEventListener('input',function(){
-      tblSearch=this.value.toLowerCase();
-      clearTimeout(searchEl._t);
-      searchEl._t=setTimeout(()=>render(),300);
-    });
-    searchEl.addEventListener('keydown',function(e){
-      if(e.key==='Enter'){clearTimeout(searchEl._t);tblSearch=this.value.toLowerCase();render();}
-    });
+    searchEl.addEventListener('input',function(){tblSearch=this.value.toLowerCase();clearTimeout(searchEl._t);searchEl._t=setTimeout(()=>render(),300);});
+    searchEl.addEventListener('keydown',function(e){if(e.key==='Enter'){clearTimeout(searchEl._t);tblSearch=this.value.toLowerCase();render();}});
   }
 }
 
+
+let fluxoModo='mensal';
+
 function renderFluxo(all){
+  if(fluxoModo==='diario') renderFluxoDiario(all);
+  else renderFluxoMensal(all);
+}
+
+function renderFluxoMensal(all){
   const meses=[];const d=new Date(currentMes+'-01');
   for(let i=5;i>=0;i--){const m=new Date(d);m.setMonth(m.getMonth()-i);meses.push(m.toISOString().slice(0,7));}
   let sa=0;
@@ -1481,8 +1549,14 @@ function renderFluxo(all){
   document.getElementById('content').innerHTML=`
     <div class="table-wrap" style="margin-bottom:20px">
       <div class="table-header">
-        <div class="table-title">Fluxo de Caixa — 6 meses</div>
-        <button class="btn export" onclick="exportarExcel()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-spreadsheet"></i> Exportar Excel</button>
+        <div class="table-title">Fluxo de Caixa</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="tab-toggle">
+            <button class="tab-btn active" onclick="fluxoModo='mensal';render()">Mensal</button>
+            <button class="tab-btn" onclick="fluxoModo='diario';render()">Diário</button>
+          </div>
+          <button class="btn export" onclick="exportarExcel()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-spreadsheet"></i> Exportar Excel</button>
+        </div>
       </div>
       <table><thead><tr><th>Mês</th><th class="td-right">Receitas</th><th class="td-right">Despesas</th><th class="td-right">Saldo mês</th><th class="td-right">Saldo acumulado</th></tr></thead><tbody>
         ${rows.map(r=>`<tr><td><div style="font-weight:500;font-size:12px">${getMesLabel(r.m)}</div><div class="fluxo-bar"><div class="fluxo-fill" style="width:${Math.round(r.rec/maxV*100)}%;background:var(--accent)"></div></div><div class="fluxo-bar" style="margin-top:3px"><div class="fluxo-fill" style="width:${Math.round(r.pag/maxV*100)}%;background:var(--accent2)"></div></div></td><td class="td-right td-mono" style="color:var(--accent)">${fmt(r.rec)}</td><td class="td-right td-mono" style="color:var(--accent2)">${fmt(r.pag)}</td><td class="td-right td-mono" style="font-weight:500;color:${r.saldo>=0?'var(--accent)':'var(--accent2)'}">${fmt(r.saldo)}</td><td class="td-right td-mono" style="font-weight:500;color:${r.sa>=0?'var(--accent)':'var(--accent2)'}">${fmt(r.sa)}</td></tr>`).join('')}
@@ -1496,6 +1570,68 @@ function renderFluxo(all){
       {label:'Saldo acum.',data:rows.map(r=>r.sa),borderColor:'#2A5C45',backgroundColor:'rgba(42,92,69,0.08)',tension:.35,fill:true,pointRadius:4,pointBackgroundColor:'#2A5C45'},
       {label:'Receitas',data:rows.map(r=>r.rec),borderColor:'#1A4A7A',borderDash:[4,3],tension:.3,fill:false,pointRadius:3},
       {label:'Despesas',data:rows.map(r=>r.pag),borderColor:'#C4411A',borderDash:[4,3],tension:.3,fill:false,pointRadius:3}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{font:{size:11},boxWidth:12}}},scales:{y:{ticks:{font:{size:10},callback:v=>'R$'+Intl.NumberFormat('pt-BR',{notation:'compact'}).format(v)},grid:{color:'rgba(0,0,0,0.04)'}},x:{ticks:{font:{size:10}},grid:{display:false}}}}});
+  },50);
+}
+
+function renderFluxoDiario(all){
+  // Pega todos os lançamentos do mês atual e agrupa por dia do vencimento
+  const doMes=all.filter(x=>x.mes===currentMes);
+  const diasMap={};
+  doMes.forEach(x=>{
+    const dia=x.venc||`${currentMes}-01`;
+    if(!diasMap[dia])diasMap[dia]={rec:0,pag:0,items:[]};
+    if(x.tipo==='receber')diasMap[dia].rec+=x.valor;
+    else diasMap[dia].pag+=x.valor;
+    diasMap[dia].items.push(x);
+  });
+  const dias=Object.keys(diasMap).sort();
+  let saldoAcum=0;
+  const rows=dias.map(dia=>{
+    const r=diasMap[dia];
+    saldoAcum+=r.rec-r.pag;
+    return{dia,rec:r.rec,pag:r.pag,saldo:r.rec-r.pag,sa:saldoAcum,items:r.items};
+  });
+  const maxV=Math.max(...rows.map(r=>Math.max(r.rec,r.pag)),1);
+
+  document.getElementById('content').innerHTML=`
+    <div class="table-wrap" style="margin-bottom:20px">
+      <div class="table-header">
+        <div class="table-title">Fluxo de Caixa Diário — ${getMesLabel(currentMes)}</div>
+        <div class="tab-toggle">
+          <button class="tab-btn" onclick="fluxoModo='mensal';render()">Mensal</button>
+          <button class="tab-btn active" onclick="fluxoModo='diario';render()">Diário</button>
+        </div>
+      </div>
+      ${rows.length===0?'<div class="empty"><i class="ti ti-inbox"></i><p>Sem lançamentos neste mês.</p></div>':
+      `<table><thead><tr><th>Data</th><th class="td-right">Entradas</th><th class="td-right">Saídas</th><th class="td-right">Saldo do dia</th><th class="td-right">Acumulado</th></tr></thead><tbody>
+        ${rows.map(r=>`
+          <tr style="cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'table-row':'none'">
+            <td>
+              <div style="font-weight:500;font-size:12px">${fmtDate(r.dia)}</div>
+              <div class="fluxo-bar"><div class="fluxo-fill" style="width:${Math.round(r.rec/maxV*100)}%;background:var(--accent)"></div></div>
+              <div class="fluxo-bar" style="margin-top:2px"><div class="fluxo-fill" style="width:${Math.round(r.pag/maxV*100)}%;background:var(--accent2)"></div></div>
+            </td>
+            <td class="td-right td-mono" style="color:var(--accent)">${r.rec>0?fmt(r.rec):'—'}</td>
+            <td class="td-right td-mono" style="color:var(--accent2)">${r.pag>0?fmt(r.pag):'—'}</td>
+            <td class="td-right td-mono" style="font-weight:500;color:${r.saldo>=0?'var(--accent)':'var(--accent2)'}">${fmt(r.saldo)}</td>
+            <td class="td-right td-mono" style="font-weight:500;color:${r.sa>=0?'var(--accent)':'var(--accent2)'}">${fmt(r.sa)}</td>
+          </tr>
+          <tr style="display:none"><td colspan="5" style="padding:0;background:var(--surface2)">
+            <table style="width:100%;border:none"><tbody>
+              ${r.items.map(i=>`<tr style="border:none"><td style="padding:6px 24px;font-size:11px;color:var(--text2)">${i.desc}</td><td style="font-size:11px;color:var(--text3);padding:6px 8px">${i.parte||''}</td><td style="font-size:11px;padding:6px 8px"><span class="badge ${i.status}">${i.status}</span></td><td class="td-right td-mono" style="font-size:11px;padding:6px 24px 6px 8px;color:${i.tipo==='receber'?'var(--accent)':'var(--accent2)'}">${i.tipo==='receber'?'+':'-'}${fmt(i.valor)}</td></tr>`).join('')}
+            </tbody></table>
+          </td></tr>
+        `).join('')}
+      </tbody></table>`}
+    </div>
+    <div class="chart-card"><div class="chart-title">Entradas e Saídas diárias — ${getMesLabel(currentMes)}</div><div style="position:relative;height:200px"><canvas id="chart-diario"></canvas></div></div>`;
+  setTimeout(()=>{
+    const ctx=document.getElementById('chart-diario');if(!ctx)return;
+    if(ctx._ch)ctx._ch.destroy();
+    ctx._ch=new Chart(ctx,{type:'bar',data:{labels:rows.map(r=>fmtDate(r.dia).slice(0,5)),datasets:[
+      {label:'Entradas',data:rows.map(r=>r.rec),backgroundColor:'rgba(42,92,69,0.75)',borderRadius:3},
+      {label:'Saídas',data:rows.map(r=>r.pag),backgroundColor:'rgba(196,65,26,0.75)',borderRadius:3}
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{font:{size:11},boxWidth:12}}},scales:{y:{ticks:{font:{size:10},callback:v=>'R$'+Intl.NumberFormat('pt-BR',{notation:'compact'}).format(v)},grid:{color:'rgba(0,0,0,0.04)'}},x:{ticks:{font:{size:10}},grid:{display:false}}}}});
   },50);
 }
@@ -2527,6 +2663,9 @@ function exportarRelPDF(){
   }
   if(lbl)lbl.textContent=getMesLabel(currentMes);
 })();
+
+// Restaura estado da sidebar
+try{if(localStorage.getItem('ds_sidebar')==='1'){document.getElementById('sidebar').classList.add('collapsed');document.getElementById('sidebar-toggle-icon').className='ti ti-layout-sidebar-left-expand';}}catch(e){}
 
 render();
 </script>
