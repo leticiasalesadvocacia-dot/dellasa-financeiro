@@ -422,6 +422,10 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <label class="form-label">Valor pago hoje (R$)</label>
       <input class="form-input" id="parcial-valor" type="number" step="0.01" placeholder="0,00" style="font-size:16px;font-family:var(--mono)" />
     </div>
+    <div class="form-group" style="margin-top:10px">
+      <label class="form-label">Data do pagamento</label>
+      <input class="form-input" id="parcial-data" type="date" />
+    </div>
     <div id="parcial-resumo" style="margin-top:8px;padding:10px 12px;background:var(--accent-light);border-radius:8px;font-size:12px;color:var(--accent);display:none"></div>
     <div style="margin-top:12px;padding:10px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F">
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:#7B6200">
@@ -443,6 +447,10 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <span>Confirmar pagamento</span>
     </div>
     <div id="toggle-mes-ant-desc" style="font-size:13px;font-weight:600;color:var(--text1);margin-bottom:12px;padding:10px 12px;background:var(--surface2);border-radius:8px"></div>
+    <div class="form-group">
+      <label class="form-label">Data do pagamento</label>
+      <input class="form-input" id="toggle-mes-ant-data" type="date" />
+    </div>
     <div style="padding:10px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F">
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:#7B6200">
         <input type="checkbox" id="toggle-mes-ant-check" style="margin-top:2px;accent-color:var(--accent2);width:15px;height:15px;flex-shrink:0">
@@ -644,7 +652,8 @@ function localToDb(item) {
     total_parcelas: item.totalParcelas||null, grupo_rec_id: item.grupoRecId||null,
     recorrencia: item.recorrencia||null, total_recorrencias: item.totalRecorrencias||null,
     pago_parcial: item.pago_parcial||0, orc_id: item.orc_id||null,
-    nao_contabiliza: item.nao_contabiliza||false
+    nao_contabiliza: item.nao_contabiliza||false,
+    data_pagamento: item.data_pagamento||null
   };
 }
 
@@ -658,7 +667,8 @@ function dbToLocal(row) {
     totalParcelas: row.total_parcelas||null, grupoRecId: row.grupo_rec_id||null,
     recorrencia: row.recorrencia||null, totalRecorrencias: row.total_recorrencias||null,
     pago_parcial: parseFloat(row.pago_parcial)||0, orc_id: row.orc_id||null,
-    nao_contabiliza: row.nao_contabiliza||false
+    nao_contabiliza: row.nao_contabiliza||false,
+    data_pagamento: row.data_pagamento||null
   };
 }
 
@@ -911,6 +921,7 @@ async function toggleStatus(id){
     _toggleMesNovoStatus=novoStatus;
     document.getElementById('toggle-mes-ant-desc').textContent=item.desc+' — '+fmt(item.valor);
     document.getElementById('toggle-mes-ant-check').checked=false;
+    document.getElementById('toggle-mes-ant-data').value=new Date().toISOString().split('T')[0];
     document.getElementById('modal-toggle-mes').classList.add('open');
   } else {
     // Desmarcando — vai direto, remove flag
@@ -922,8 +933,11 @@ async function toggleStatus(id){
 async function confirmarToggleMes(){
   if(!_toggleMesId)return;
   const mesAnterior=document.getElementById('toggle-mes-ant-check').checked;
+  const dataPag=document.getElementById('toggle-mes-ant-data').value;
   document.getElementById('modal-toggle-mes').classList.remove('open');
-  await updateItem(_toggleMesId,{status:_toggleMesNovoStatus,nao_contabiliza:mesAnterior});
+  const update={status:_toggleMesNovoStatus,nao_contabiliza:mesAnterior};
+  if(dataPag)update.data_pagamento=dataPag;
+  await updateItem(_toggleMesId,update);
   _toggleMesId=null;_toggleMesNovoStatus=null;
   showToast('Status atualizado.');render();
 }
@@ -1421,7 +1435,10 @@ function renderTabela(tipo,items){
         }
         const pagoParcial=r.pago_parcial||0;
         const ncBadge=r.nao_contabiliza?`<span title="Não contabilizado no caixa deste mês" style="display:inline-block;margin-left:6px;padding:1px 6px;background:#FFF8E1;color:#7B6200;border:1px solid #FFD54F;border-radius:10px;font-size:10px;font-weight:600">↩ mês ant.</span>`:'';
+        const dataPagDisplay=r.data_pagamento?`<br><small style="color:var(--accent);font-size:10px">✓ pago ${fmtDate(r.data_pagamento)}</small>`:'';
         return`<tr><td></td><td>${r.desc}${ncBadge}${r.obs?`<br><small style="color:var(--text3)">${r.obs}</small>`:''}</td>
+          <td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td><td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
+          <td style="color:var(--text2)">${r.parte||'—'}</td><td class="td-mono">${fmtDate(r.venc)}${dataPagDisplay}</td>
           <td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td><td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
           <td style="color:var(--text2)">${r.parte||'—'}</td><td class="td-mono">${fmtDate(r.venc)}</td>
           <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')" title="Clique para alterar">${r.status}</span></td>
@@ -1667,6 +1684,7 @@ async function openParcial(id){
     <span>Valor total: <strong>${fmt(item.valor)}</strong></span>
     ${jaPago>0?`<br><span>Já pago antes: <strong style="color:var(--accent)">${fmt(jaPago)}</strong> &nbsp;|&nbsp; Restante: <strong style="color:var(--accent2)">${fmt(restante)}</strong></span>`:''}`;
   document.getElementById('parcial-valor').value='';
+  document.getElementById('parcial-data').value=new Date().toISOString().split('T')[0];
   document.getElementById('parcial-resumo').style.display='none';
   document.getElementById('parcial-mes-anterior').checked=false;
   document.getElementById('modal-parcial').classList.add('open');
@@ -1696,10 +1714,12 @@ async function salvarParcial(){
   const v=parseFloat(document.getElementById('parcial-valor').value)||0;
   if(!v){showToast('Informe o valor pago.');return;}
   const mesAnterior=document.getElementById('parcial-mes-anterior').checked;
+  const dataPag=document.getElementById('parcial-data').value;
   const novoTotal=(item.pago_parcial||0)+v;
   const novoStatus=novoTotal>=item.valor?'pago':'parcial';
   const update={pago_parcial:novoTotal,status:novoStatus};
   if(mesAnterior)update.nao_contabiliza=true;
+  if(dataPag)update.data_pagamento=dataPag;
   await updateItem(parcialId,update);
   closeModal('modal-parcial');
   showToast(novoStatus==='pago'?`Pago integralmente!${mesAnterior?' (não contabilizado no caixa deste mês)':''}`:
