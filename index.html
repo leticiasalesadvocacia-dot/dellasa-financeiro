@@ -918,12 +918,12 @@ async function salvarLancamento(){
     closeModal('modal-add');showToast(`${n} parcelas criadas.`);render();return;
   }
 
-  // Editando item que faz parte de um grupo de parcelas
+  // Editando item que faz parte de um grupo de parcelas existente
   if(editingId&&parcelar){
     const all=await getData();
     const itemAtual=all.find(x=>x.id===editingId);
     if(itemAtual&&itemAtual.grupoId){
-      // Salva os valores individuais de cada parcela do grupo
+      // Atualiza valores das parcelas do grupo existente
       const grupo=all.filter(x=>x.grupoId===itemAtual.grupoId).sort((a,b)=>(a.parcela||0)-(b.parcela||0));
       const n=grupo.length;
       for(let i=0;i<n;i++){
@@ -947,6 +947,21 @@ async function salvarLancamento(){
         });
       }
       closeModal('modal-add');showToast(`${n} parcelas atualizadas.`);render();return;
+    } else if(itemAtual&&!itemAtual.grupoId){
+      // Item avulso sendo convertido em parcelas — exclui o original e cria o grupo
+      const n=parseInt(document.getElementById('f-nparcelas').value)||3;
+      const intervalo=parseInt(document.getElementById('f-intervalo').value)||30;
+      const grupoId=genId();
+      const descBase=desc.replace(/ \(\d+\/\d+\)$/,'');
+      await delItem(editingId);
+      for(let i=0;i<n;i++){
+        const vencP=addDias(venc,i*intervalo);
+        const elVal=document.getElementById('pval-'+i);
+        const valParcela=elVal?parseFloat(elVal.value)||valor/n:valor/n;
+        await addItem({...base,id:genId(),valor:valParcela,venc:vencP,mes:vencP.slice(0,7),
+          desc:`${descBase} (${i+1}/${n})`,grupoId,parcela:i+1,totalParcelas:n,status:'pendente'});
+      }
+      closeModal('modal-add');showToast(`Convertido em ${n} parcelas!`);render();return;
     }
   }
 
