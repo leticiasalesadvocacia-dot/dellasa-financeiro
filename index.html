@@ -942,22 +942,22 @@ async function confirmarDelete(id){
 // Estado global para o modal de mês anterior
 let _toggleMesId=null, _toggleMesNovoStatus=null;
 
-async function toggleStatus(id){
-  const all=await getData();
-  const item=all.find(x=>x.id===id);if(!item)return;
-  const novoStatus=item.tipo==='receber'?(item.status==='recebido'?'pendente':'recebido'):(item.status==='pago'?'pendente':'pago');
+function toggleStatus(id, tipoItem, statusAtual){
+  // Se desmarcando (já está pago/recebido → volta p/ pendente)
+  const novoStatus = tipoItem==='receber'
+    ? (statusAtual==='recebido'?'pendente':'recebido')
+    : (statusAtual==='pago'?'pendente':'pago');
+
   if(novoStatus==='pago'||novoStatus==='recebido'){
-    // Abre modal perguntando sobre mês anterior
     _toggleMesId=id;
     _toggleMesNovoStatus=novoStatus;
-    document.getElementById('toggle-mes-ant-desc').textContent=item.desc+' — '+fmt(item.valor);
     document.getElementById('toggle-mes-ant-check').checked=false;
     document.getElementById('toggle-mes-ant-data').value=new Date().toISOString().split('T')[0];
     document.getElementById('modal-toggle-mes').classList.add('open');
   } else {
-    // Desmarcando — vai direto, remove flag
-    await updateItem(id,{status:novoStatus,nao_contabiliza:false});
-    showToast('Status atualizado.');render();
+    // Desmarcando — vai direto sem modal
+    updateItem(id,{status:novoStatus,nao_contabiliza:false,data_pagamento:null})
+      .then(()=>{showToast('Status atualizado.');render();});
   }
 }
 
@@ -1356,7 +1356,7 @@ function renderVencidos(all, doMes){
           <td class="td-mono" style="color:var(--accent2)">${fmtDate(r.venc)}</td>
           <td><span style="background:var(--accent2-light);color:var(--accent2);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">${dias}d</span></td>
           <td class="td-right td-mono" style="color:var(--accent);font-weight:500">${fmt(r.valor)}</td>
-          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')">${r.status}</span></td>
+          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}','${r.tipo}','${r.status}')">${r.status}</span></td>
         </tr>`;}).join('')}
     </tbody></table>`:''}
     ${vencPag.length>0?`
@@ -1372,7 +1372,7 @@ function renderVencidos(all, doMes){
           <td class="td-mono" style="color:var(--accent2)">${fmtDate(r.venc)}</td>
           <td><span style="background:var(--accent2-light);color:var(--accent2);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">${dias}d</span></td>
           <td class="td-right td-mono" style="color:var(--accent2);font-weight:500">${fmt(r.valor)}</td>
-          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')">${r.status}</span></td>
+          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}','${r.tipo}','${r.status}')">${r.status}</span></td>
         </tr>`;}).join('')}
     </tbody></table>`:''}
   </div>`;
@@ -1495,7 +1495,7 @@ function renderTabela(tipo, allItems){
             <td style="color:var(--text2)">${r.parte||'—'}</td><td class="td-mono">—</td><td>—</td>
             <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(totalG)}</td><td>—</td><td></td></tr>
           <tr><td colspan="10" style="padding:0"><div class="parcelas-detail" id="pd-${r.grupoId}">
-            ${g.sort((a,b)=>(a.parcela||0)-(b.parcela||0)).map(p=>`<div class="parcela-item" style="grid-template-columns:28px 1fr auto auto auto auto auto auto"><span style="color:var(--text3);font-weight:600">${p.parcela}/${p.totalParcelas}</span><span>${p.desc}</span><span class="td-mono" style="font-size:10px">${fmtDate(p.venc)}</span><span class="badge ${p.status}" style="cursor:pointer" onclick="toggleStatus('${p.id}')" title="Clique para alterar">${p.status}</span><span style="font-family:var(--mono);font-size:11px;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(p.valor)}</span><button onclick="openParcial('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:11px;padding:0 4px" title="Pagamento parcial"><i class="ti ti-coin"></i></button><button onclick="openEdit('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0 4px" title="Editar"><i class="ti ti-edit"></i></button><button onclick="confirmarDelete('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:11px;padding:0 4px" title="Excluir"><i class="ti ti-trash"></i></button></div>`).join('')}
+            ${g.sort((a,b)=>(a.parcela||0)-(b.parcela||0)).map(p=>`<div class="parcela-item" style="grid-template-columns:28px 1fr auto auto auto auto auto auto"><span style="color:var(--text3);font-weight:600">${p.parcela}/${p.totalParcelas}</span><span>${p.desc}</span><span class="td-mono" style="font-size:10px">${fmtDate(p.venc)}</span><span class="badge ${p.status}" style="cursor:pointer" onclick="toggleStatus('${p.id}','${p.tipo}','${p.status}')" title="Clique para alterar">${p.status}</span><span style="font-family:var(--mono);font-size:11px;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(p.valor)}</span><button onclick="openParcial('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:11px;padding:0 4px" title="Pagamento parcial"><i class="ti ti-coin"></i></button><button onclick="openEdit('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0 4px" title="Editar"><i class="ti ti-edit"></i></button><button onclick="confirmarDelete('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:11px;padding:0 4px" title="Excluir"><i class="ti ti-trash"></i></button></div>`).join('')}
           </div></td></tr>`;
         }
         const pagoParcial=r.pago_parcial||0;
@@ -1508,7 +1508,7 @@ function renderTabela(tipo, allItems){
           <td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
           <td style="color:var(--text2)">${r.parte||'—'}</td>
           <td class="td-mono">${fmtDate(r.venc)}${dataPagDisplay}</td>
-          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')" title="Clique para alterar">${r.status}</span></td>
+          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}','${r.tipo}','${r.status}')" title="Clique para alterar">${r.status}</span></td>
           <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(r.valor)}</td>
           <td class="td-right td-mono" style="color:var(--blue)">${pagoParcial>0?fmt(pagoParcial):'—'}</td>
           <td style="white-space:nowrap">
