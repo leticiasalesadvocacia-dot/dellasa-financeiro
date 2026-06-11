@@ -902,6 +902,8 @@ async function salvarLancamento(){
     contrato:document.getElementById('f-contrato').value.trim(),
     obs:document.getElementById('f-obs').value.trim(),
   };
+
+  // Criando novo com parcelamento
   if(parcelar&&!editingId){
     const n=parseInt(document.getElementById('f-nparcelas').value)||3;
     const intervalo=parseInt(document.getElementById('f-intervalo').value)||30;
@@ -915,6 +917,39 @@ async function salvarLancamento(){
     }
     closeModal('modal-add');showToast(`${n} parcelas criadas.`);render();return;
   }
+
+  // Editando item que faz parte de um grupo de parcelas
+  if(editingId&&parcelar){
+    const all=await getData();
+    const itemAtual=all.find(x=>x.id===editingId);
+    if(itemAtual&&itemAtual.grupoId){
+      // Salva os valores individuais de cada parcela do grupo
+      const grupo=all.filter(x=>x.grupoId===itemAtual.grupoId).sort((a,b)=>(a.parcela||0)-(b.parcela||0));
+      const n=grupo.length;
+      for(let i=0;i<n;i++){
+        const p=grupo[i];
+        const elVal=document.getElementById('pval-'+i);
+        const novoValor=elVal?parseFloat(elVal.value)||p.valor:p.valor;
+        const descBase=desc.replace(/ \(\d+\/\d+\)$/,'');
+        await updateItem(p.id,{
+          ...base,
+          desc:`${descBase} (${i+1}/${n})`,
+          valor:novoValor,
+          venc:p.venc,
+          mes:p.mes,
+          grupoId:p.grupoId,
+          parcela:p.parcela,
+          totalParcelas:p.totalParcelas,
+          status:p.status,
+          pago_parcial:p.pago_parcial,
+          nao_contabiliza:p.nao_contabiliza,
+          data_pagamento:p.data_pagamento,
+        });
+      }
+      closeModal('modal-add');showToast(`${n} parcelas atualizadas.`);render();return;
+    }
+  }
+
   if(recorrente&&!editingId){
     const nMeses=parseInt(document.getElementById('f-rec-meses').value)||11;
     const grupoRecId=genId();
@@ -927,8 +962,10 @@ async function salvarLancamento(){
     }
     closeModal('modal-add');showToast(`${nMeses+1} lançamentos recorrentes criados.`);render();return;
   }
+
+  // Edição simples (item único)
   const item={...base,id:editingId||genId(),mes:venc.slice(0,7)};
-  if(editingId)updateItem(editingId,item);else addItem(item);
+  if(editingId)await updateItem(editingId,item);else addItem(item);
   closeModal('modal-add');showToast(editingId?'Atualizado.':'Salvo.');render();
 }
 
