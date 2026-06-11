@@ -2491,7 +2491,7 @@ async function gerarAnaliseIA(mesPrincipal,mesPrevisao1,mesPrevisao2){
   const metas=await getMetas();
 
   // Orçamentos
-  const orcs=await getOrcamentos();
+  const orcs=await getOrcsData();
   const orcsEnviados=orcs.filter(o=>o.status==='enviado');
   const orcsAprovados=orcs.filter(o=>o.status==='aprovado');
   const orcsPerdidos=orcs.filter(o=>o.status==='perdido');
