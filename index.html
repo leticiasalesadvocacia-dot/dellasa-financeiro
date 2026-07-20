@@ -1368,7 +1368,7 @@ function renderHistorico(all){
         <input type="date" class="date-filter-input" value="${histDe}" onchange="histDe=this.value;render()">
         <span class="filter-label">Até</span>
         <input type="date" class="date-filter-input" value="${histAte}" onchange="histAte=this.value;render()">
-        <input class="search-input wide" id="hist-search" placeholder="Buscar desc, cliente, NF..." value="${histSearch}">
+        <input class="search-input wide" id="hist-search" placeholder="Buscar desc, cliente, NF..." value="${histSearch}" oninput="histSearch=this.value;clearTimeout(this._t);this._t=setTimeout(()=>render(),400)" onkeydown="if(event.key==='Enter'){clearTimeout(this._t);histSearch=this.value;render()}">
         <select class="filter-select" onchange="histCat=this.value;render()">
           <option value="">Todas categorias</option>
           ${cats.map(c=>`<option value="${c}" ${histCat===c?'selected':''}>${c}</option>`).join('')}
@@ -1393,13 +1393,6 @@ function renderHistorico(all){
       </tbody></table>`}
     </div>`;
 
-  // Bind busca
-  const el=document.getElementById('hist-search');
-  if(el){
-    el.focus();el.setSelectionRange(el.value.length,el.value.length);
-    el.addEventListener('input',function(){histSearch=this.value;clearTimeout(el._t);el._t=setTimeout(()=>render(),300);});
-    el.addEventListener('keydown',function(e){if(e.key==='Enter'){clearTimeout(el._t);histSearch=this.value;render();}});
-  }
 }
 
 async function exportarHistoricoPDF(){
