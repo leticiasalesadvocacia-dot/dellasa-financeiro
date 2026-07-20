@@ -210,6 +210,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <button class="nav-item" onclick="showPage('emprestimos')" id="nav-emprestimos"><i class="ti ti-building-bank"></i><span class="nav-label"> Empréstimos</span></button>
       <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i><span class="nav-label"> Proj. Pausados</span></button>
       <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i><span class="nav-label"> Relatórios IA</span></button>
+      <button class="nav-item" onclick="showPage('historico')" id="nav-historico"><i class="ti ti-history"></i><span class="nav-label"> Histórico</span></button>
     </nav>
     <div class="sidebar-bottom">
       <button class="nav-item" onclick="openImport()"><i class="ti ti-file-import"></i><span class="nav-label"> Importar planilha</span></button>
@@ -792,6 +793,7 @@ const genId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const _nowMes=(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');})();
 let currentPage='dashboard', currentMes=_nowMes, editingId=null, importData=[];
 let tblStatus='todos', tblSearch='', tblDe='', tblAte='', tblDia='', tblModoData='mes';
+let histTipo='todos', histSearch='', histDe='', histAte='', histCat='';
 let _cacheAllForFilter=null;
 
 const fmt=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
@@ -814,7 +816,7 @@ function showPage(p){
   currentPage=p;tblStatus='todos';tblSearch='';tblDe='';tblAte='';tblDia='';tblModoData='mes';
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('nav-'+p)?.classList.add('active');
-  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios com IA'};
+  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios com IA',historico:'Histórico'};
   document.getElementById('page-title').textContent=titles[p]||p;
   document.getElementById('btn-add').style.display=(p==='dashboard'||p==='receber'||p==='pagar'||p==='orcamentos'||p==='pausados')?'':'none';
   if(p==='orcamentos') document.getElementById('btn-add').onclick=()=>openOrcamento();
@@ -1267,6 +1269,142 @@ async function confirmarProrrogar(){
   render();
 }
 
+function renderHistorico(all){
+  // Aplica filtros
+  let items=all.filter(x=>{
+    if(histTipo!=='todos'&&x.tipo!==histTipo)return false;
+    if(histDe&&x.venc<histDe)return false;
+    if(histAte&&x.venc>histAte)return false;
+    if(histCat&&!(x.cat||'').toLowerCase().includes(histCat.toLowerCase()))return false;
+    if(histSearch){
+      const q=histSearch.toLowerCase();
+      if(!((x.desc||'').toLowerCase().includes(q)||(x.parte||'').toLowerCase().includes(q)||(x.cat||'').toLowerCase().includes(q)||(x.nf||'').toLowerCase().includes(q)))return false;
+    }
+    return true;
+  });
+
+  // Ordena por vencimento
+  items=items.sort((a,b)=>a.venc.localeCompare(b.venc));
+
+  // Totais
+  const totalRec=items.filter(x=>x.tipo==='receber').reduce((s,x)=>s+x.valor,0);
+  const totalPag=items.filter(x=>x.tipo==='pagar').reduce((s,x)=>s+x.valor,0);
+  const resultado=totalRec-totalPag;
+
+  // Categorias únicas para filtro
+  const cats=[...new Set(all.map(x=>x.cat).filter(Boolean))].sort();
+
+  const temFiltro=histTipo!=='todos'||histSearch||histDe||histAte||histCat;
+
+  document.getElementById('content').innerHTML=`
+    <div class="metrics" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+      <div class="metric-card"><div class="metric-label">Registros encontrados</div><div class="metric-value blue">${items.length}</div><div class="metric-sub">de ${all.length} total</div></div>
+      <div class="metric-card"><div class="metric-label">Total a receber</div><div class="metric-value green">${fmt(totalRec)}</div></div>
+      <div class="metric-card"><div class="metric-label">Total a pagar</div><div class="metric-value red">${fmt(totalPag)}</div></div>
+      <div class="metric-card"><div class="metric-label">Resultado</div><div class="metric-value ${resultado>=0?'green':'red'}">${fmt(resultado)}</div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Histórico completo — todos os lançamentos</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn export" onclick="exportarHistoricoPDF()" style="padding:5px 10px;font-size:12px;background:var(--accent2-light);color:var(--accent2);border:1px solid var(--accent2)"><i class="ti ti-file-type-pdf"></i> PDF</button>
+        </div>
+      </div>
+      <div class="filter-row">
+        <div class="tab-toggle">
+          <button class="tab-btn ${histTipo==='todos'?'active':''}" onclick="histTipo='todos';render()">Todos</button>
+          <button class="tab-btn ${histTipo==='receber'?'active':''}" onclick="histTipo='receber';render()">A Receber</button>
+          <button class="tab-btn ${histTipo==='pagar'?'active':''}" onclick="histTipo='pagar';render()">A Pagar</button>
+        </div>
+        <span class="filter-label">De</span>
+        <input type="date" class="date-filter-input" value="${histDe}" onchange="histDe=this.value;render()">
+        <span class="filter-label">Até</span>
+        <input type="date" class="date-filter-input" value="${histAte}" onchange="histAte=this.value;render()">
+        <input class="search-input wide" id="hist-search" placeholder="Buscar desc, cliente, NF..." value="${histSearch}">
+        <select class="filter-select" onchange="histCat=this.value;render()">
+          <option value="">Todas categorias</option>
+          ${cats.map(c=>`<option value="${c}" ${histCat===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+        ${temFiltro?`<button class="btn-clear-filter" onclick="histTipo='todos';histSearch='';histDe='';histAte='';histCat='';render()"><i class="ti ti-x" style="font-size:11px"></i> Limpar</button>`:''}
+      </div>
+      ${items.length===0?'<div class="empty"><i class="ti ti-inbox"></i><p>Nenhum lançamento encontrado.</p></div>':
+      `<table><thead><tr>
+        <th>Vencimento</th><th>Tipo</th><th>Descrição</th><th>Cliente / Fornecedor</th><th>Categoria</th><th>Status</th><th class="td-right">Valor</th>
+      </tr></thead><tbody>
+      ${items.map(r=>`<tr style="cursor:pointer" onclick="showPage(${r.tipo==='receber'?"'receber'":"'pagar'"})">
+        <td class="td-mono" style="font-size:12px">${fmtDate(r.venc)}<br><small style="color:var(--text3)">${getMesLabel(r.mes||r.venc?.slice(0,7)||'')}</small></td>
+        <td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${r.tipo==='receber'?'var(--accent-light)':'var(--accent2-light)'};color:${r.tipo==='receber'?'var(--accent)':'var(--accent2)'}">
+          ${r.tipo==='receber'?'↓ Receber':'↑ Pagar'}</span></td>
+        <td style="max-width:280px"><div style="font-weight:500;font-size:12px">${r.desc}</div>${r.obs?`<div style="font-size:10px;color:var(--text3)">${r.obs}</div>`:''}</td>
+        <td style="font-size:12px;color:var(--text2)">${r.parte||'—'}</td>
+        <td style="font-size:11px;color:var(--text3)">${r.cat||'—'}</td>
+        <td><span class="badge ${r.status}">${r.status}</span></td>
+        <td class="td-right td-mono" style="font-weight:600;color:${r.tipo==='receber'?'var(--accent)':'var(--accent2)'}">
+          ${r.tipo==='receber'?'+':'-'}${fmt(r.valor)}</td>
+      </tr>`).join('')}
+      </tbody></table>`}
+    </div>`;
+
+  // Bind busca
+  const el=document.getElementById('hist-search');
+  if(el){
+    el.focus();el.setSelectionRange(el.value.length,el.value.length);
+    el.addEventListener('input',function(){histSearch=this.value;clearTimeout(el._t);el._t=setTimeout(()=>render(),300);});
+    el.addEventListener('keydown',function(e){if(e.key==='Enter'){clearTimeout(el._t);histSearch=this.value;render();}});
+  }
+}
+
+async function exportarHistoricoPDF(){
+  const all=await getData();
+  // Reutiliza os filtros atuais do histórico
+  let items=all.filter(x=>{
+    if(histTipo!=='todos'&&x.tipo!==histTipo)return false;
+    if(histDe&&x.venc<histDe)return false;
+    if(histAte&&x.venc>histAte)return false;
+    if(histCat&&!(x.cat||'').toLowerCase().includes(histCat.toLowerCase()))return false;
+    if(histSearch){const q=histSearch.toLowerCase();if(!((x.desc||'').toLowerCase().includes(q)||(x.parte||'').toLowerCase().includes(q)))return false;}
+    return true;
+  }).sort((a,b)=>a.venc.localeCompare(b.venc));
+  if(!items.length){showToast('Nenhum registro para exportar.');return;}
+  const totalRec=items.filter(x=>x.tipo==='receber').reduce((s,x)=>s+x.valor,0);
+  const totalPag=items.filter(x=>x.tipo==='pagar').reduce((s,x)=>s+x.valor,0);
+  const rows=items.map(r=>`<tr>
+    <td>${fmtDate(r.venc)}</td>
+    <td style="color:${r.tipo==='receber'?'#2A5C45':'#C4411A'}">${r.tipo==='receber'?'↓ Receber':'↑ Pagar'}</td>
+    <td>${r.desc}</td><td>${r.parte||'—'}</td><td>${r.cat||'—'}</td>
+    <td><span style="padding:2px 6px;border-radius:8px;font-size:9px;background:${r.status==='recebido'||r.status==='pago'?'#E8F2ED':'#FDECEA'};color:${r.status==='recebido'||r.status==='pago'?'#2A5C45':'#C4411A'}">${r.status}</span></td>
+    <td style="text-align:right;font-family:monospace;color:${r.tipo==='receber'?'#2A5C45':'#C4411A'}">${r.tipo==='receber'?'+':'-'}${fmt(r.valor)}</td>
+  </tr>`).join('');
+  const filtroDesc=[histTipo!=='todos'?histTipo:'',histDe?`De ${fmtDate(histDe)}`:'',histAte?`Até ${fmtDate(histAte)}`:'',histSearch,histCat].filter(Boolean).join(' · ')||'Todos os lançamentos';
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Histórico DellaSá</title>
+  <style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Century Gothic',Arial,sans-serif;background:#fff;padding:24px;color:#1A1814;}
+  .header{display:flex;justify-content:space-between;margin-bottom:20px;padding-bottom:12px;border-bottom:3px solid #2A5C45}
+  .logo{font-size:20px;font-weight:700;color:#2A5C45}.sub{font-size:12px;color:#888;margin-top:2px}
+  .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px}
+  .sum-card{padding:12px 14px;border-radius:8px;border:1px solid #ddd}
+  .sum-label{font-size:10px;text-transform:uppercase;color:#888;margin-bottom:4px}
+  .sum-val{font-size:18px;font-weight:700;font-family:monospace}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  thead{background:#2A5C45;color:#fff}th{padding:8px 10px;text-align:left}
+  td{padding:7px 10px;border-bottom:1px solid #f0eeea}tr:nth-child(even){background:#f9f9f7}
+  .footer{margin-top:16px;text-align:center;font-size:10px;color:#aaa}
+  @media print{@page{margin:1.5cm}}</style></head><body>
+  <div class="header"><div><div class="logo">DellaSá Estruturas</div><div class="sub">Histórico de Lançamentos — ${filtroDesc}</div></div>
+  <div style="text-align:right;font-size:12px;color:#888">Gerado em ${new Date().toLocaleDateString('pt-BR')}<br>${items.length} registros</div></div>
+  <div class="summary">
+    <div class="sum-card"><div class="sum-label">Total a receber</div><div class="sum-val" style="color:#2A5C45">${fmt(totalRec)}</div></div>
+    <div class="sum-card"><div class="sum-label">Total a pagar</div><div class="sum-val" style="color:#C4411A">${fmt(totalPag)}</div></div>
+    <div class="sum-card"><div class="sum-label">Resultado</div><div class="sum-val" style="color:${totalRec-totalPag>=0?'#2A5C45':'#C4411A'}">${fmt(totalRec-totalPag)}</div></div>
+  </div>
+  <table><thead><tr><th>Vencimento</th><th>Tipo</th><th>Descrição</th><th>Parte</th><th>Categoria</th><th>Status</th><th style="text-align:right">Valor</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+  <div class="footer">DellaSá Estruturas Ltda — Sistema Financeiro — ${new Date().toLocaleString('pt-BR')}</div>
+  <script>window.onload=()=>window.print()<\/script></body></html>`;
+  const win=window.open('','_blank');
+  if(win){win.document.write(html);win.document.close();}
+  else showToast('Permita popups para exportar PDF.');
+}
+
 function showLoading(){document.getElementById('content').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3)"><div style="font-size:28px;margin-bottom:12px">⏳</div><div style="font-size:13px">Carregando...</div></div>';}
 
 async function render(){
@@ -1287,6 +1425,7 @@ async function render(){
     else if(currentPage==='emprestimos')await renderEmprestimos();
     else if(currentPage==='pausados')await renderPausados();
     else if(currentPage==='relatorios')renderRelatorios();
+    else if(currentPage==='historico')renderHistorico(all);
   }catch(e){
     document.getElementById('content').innerHTML=`<div style="text-align:center;padding:40px;color:var(--accent2)">Erro ao carregar: ${e.message}</div>`;
   }
