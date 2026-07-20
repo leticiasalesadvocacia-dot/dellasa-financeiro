@@ -213,6 +213,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
     </nav>
     <div class="sidebar-bottom">
       <button class="nav-item" onclick="openImport()"><i class="ti ti-file-import"></i><span class="nav-label"> Importar planilha</span></button>
+      <button class="nav-item" onclick="openImportContaAzul()"><i class="ti ti-building-store"></i><span class="nav-label"> Importar Conta Azul</span></button>
       <button class="nav-item" onclick="exportarExcel()"><i class="ti ti-file-spreadsheet"></i><span class="nav-label"> Exportar Excel</span></button>
     </div>
   </div>
@@ -378,6 +379,42 @@ if (sessionStorage.getItem('ds_auth') === '1') {
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
       <button class="btn" onclick="closeModal('modal-import')">Cancelar</button>
       <button class="btn primary" id="btn-confirmar-import" style="display:none;" onclick="confirmarImport()"><i class="ti ti-check"></i> Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Importar Conta Azul -->
+<div class="modal-backdrop" id="modal-conta-azul">
+  <div class="modal" style="width:500px;max-width:95vw">
+    <div class="modal-title">
+      <span><i class="ti ti-building-store"></i> Importar histórico do Conta Azul</span>
+      <button class="modal-close" onclick="closeModal('modal-conta-azul')"><i class="ti ti-x"></i></button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px 12px;background:var(--surface2);border-radius:8px;">
+      Importe os arquivos exportados do Conta Azul (<strong>Visão de Contas a Receber</strong> ou <strong>Visão de Contas a Pagar</strong>) no formato <strong>.xls ou .xlsx</strong>. Os dados serão salvos como histórico, marcados como recebidos/pagos.
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;font-weight:600;color:var(--text);display:block;margin-bottom:6px">Tipo de arquivo</label>
+      <div style="display:flex;gap:10px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ca-tipo" value="receber" checked id="ca-receber"> A Receber</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ca-tipo" value="pagar" id="ca-pagar"> A Pagar</label>
+      </div>
+    </div>
+    <div class="import-area" onclick="document.getElementById('ca-file-input').click()" style="margin-bottom:12px">
+      <i class="ti ti-file-spreadsheet"></i>
+      <p>Clique para selecionar o arquivo exportado do Conta Azul</p>
+      <small>Formatos: .xls, .xlsx</small>
+    </div>
+    <input type="file" id="ca-file-input" accept=".xls,.xlsx" onchange="previewContaAzul(event)" style="display:none"/>
+    <div id="ca-preview" style="display:none">
+      <div id="ca-info" style="font-size:12px;color:var(--text2);margin-bottom:8px;padding:8px 12px;background:var(--accent-light);border-radius:8px;color:var(--accent)"></div>
+      <div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;font-size:11px">
+        <table style="width:100%;border-collapse:collapse"><thead id="ca-head" style="background:var(--bg)"></thead><tbody id="ca-body"></tbody></table>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="btn" onclick="closeModal('modal-conta-azul')">Cancelar</button>
+      <button class="btn primary" id="ca-btn-confirmar" style="display:none" onclick="confirmarImportContaAzul()"><i class="ti ti-check"></i> Importar</button>
     </div>
   </div>
 </div>
@@ -902,8 +939,6 @@ async function salvarLancamento(){
     contrato:document.getElementById('f-contrato').value.trim(),
     obs:document.getElementById('f-obs').value.trim(),
   };
-
-  // Criando novo com parcelamento
   if(parcelar&&!editingId){
     const n=parseInt(document.getElementById('f-nparcelas').value)||3;
     const intervalo=parseInt(document.getElementById('f-intervalo').value)||30;
@@ -917,54 +952,6 @@ async function salvarLancamento(){
     }
     closeModal('modal-add');showToast(`${n} parcelas criadas.`);render();return;
   }
-
-  // Editando item que faz parte de um grupo de parcelas existente
-  if(editingId&&parcelar){
-    const all=await getData();
-    const itemAtual=all.find(x=>x.id===editingId);
-    if(itemAtual&&itemAtual.grupoId){
-      // Atualiza valores das parcelas do grupo existente
-      const grupo=all.filter(x=>x.grupoId===itemAtual.grupoId).sort((a,b)=>(a.parcela||0)-(b.parcela||0));
-      const n=grupo.length;
-      for(let i=0;i<n;i++){
-        const p=grupo[i];
-        const elVal=document.getElementById('pval-'+i);
-        const novoValor=elVal?parseFloat(elVal.value)||p.valor:p.valor;
-        const descBase=desc.replace(/ \(\d+\/\d+\)$/,'');
-        await updateItem(p.id,{
-          ...base,
-          desc:`${descBase} (${i+1}/${n})`,
-          valor:novoValor,
-          venc:p.venc,
-          mes:p.mes,
-          grupoId:p.grupoId,
-          parcela:p.parcela,
-          totalParcelas:p.totalParcelas,
-          status:p.status,
-          pago_parcial:p.pago_parcial,
-          nao_contabiliza:p.nao_contabiliza,
-          data_pagamento:p.data_pagamento,
-        });
-      }
-      closeModal('modal-add');showToast(`${n} parcelas atualizadas.`);render();return;
-    } else if(itemAtual&&!itemAtual.grupoId){
-      // Item avulso sendo convertido em parcelas — exclui o original e cria o grupo
-      const n=parseInt(document.getElementById('f-nparcelas').value)||3;
-      const intervalo=parseInt(document.getElementById('f-intervalo').value)||30;
-      const grupoId=genId();
-      const descBase=desc.replace(/ \(\d+\/\d+\)$/,'');
-      await delItem(editingId);
-      for(let i=0;i<n;i++){
-        const vencP=addDias(venc,i*intervalo);
-        const elVal=document.getElementById('pval-'+i);
-        const valParcela=elVal?parseFloat(elVal.value)||valor/n:valor/n;
-        await addItem({...base,id:genId(),valor:valParcela,venc:vencP,mes:vencP.slice(0,7),
-          desc:`${descBase} (${i+1}/${n})`,grupoId,parcela:i+1,totalParcelas:n,status:'pendente'});
-      }
-      closeModal('modal-add');showToast(`Convertido em ${n} parcelas!`);render();return;
-    }
-  }
-
   if(recorrente&&!editingId){
     const nMeses=parseInt(document.getElementById('f-rec-meses').value)||11;
     const grupoRecId=genId();
@@ -977,10 +964,8 @@ async function salvarLancamento(){
     }
     closeModal('modal-add');showToast(`${nMeses+1} lançamentos recorrentes criados.`);render();return;
   }
-
-  // Edição simples (item único)
   const item={...base,id:editingId||genId(),mes:venc.slice(0,7)};
-  if(editingId)await updateItem(editingId,item);else addItem(item);
+  if(editingId)updateItem(editingId,item);else addItem(item);
   closeModal('modal-add');showToast(editingId?'Atualizado.':'Salvo.');render();
 }
 
@@ -994,22 +979,22 @@ async function confirmarDelete(id){
 // Estado global para o modal de mês anterior
 let _toggleMesId=null, _toggleMesNovoStatus=null;
 
-function toggleStatus(id, tipoItem, statusAtual){
-  // Se desmarcando (já está pago/recebido → volta p/ pendente)
-  const novoStatus = tipoItem==='receber'
-    ? (statusAtual==='recebido'?'pendente':'recebido')
-    : (statusAtual==='pago'?'pendente':'pago');
-
+async function toggleStatus(id){
+  const all=await getData();
+  const item=all.find(x=>x.id===id);if(!item)return;
+  const novoStatus=item.tipo==='receber'?(item.status==='recebido'?'pendente':'recebido'):(item.status==='pago'?'pendente':'pago');
   if(novoStatus==='pago'||novoStatus==='recebido'){
+    // Abre modal perguntando sobre mês anterior
     _toggleMesId=id;
     _toggleMesNovoStatus=novoStatus;
+    document.getElementById('toggle-mes-ant-desc').textContent=item.desc+' — '+fmt(item.valor);
     document.getElementById('toggle-mes-ant-check').checked=false;
     document.getElementById('toggle-mes-ant-data').value=new Date().toISOString().split('T')[0];
     document.getElementById('modal-toggle-mes').classList.add('open');
   } else {
-    // Desmarcando — vai direto sem modal
-    updateItem(id,{status:novoStatus,nao_contabiliza:false,data_pagamento:null})
-      .then(()=>{showToast('Status atualizado.');render();});
+    // Desmarcando — vai direto, remove flag
+    await updateItem(id,{status:novoStatus,nao_contabiliza:false});
+    showToast('Status atualizado.');render();
   }
 }
 
@@ -1188,6 +1173,100 @@ async function confirmarImport(){
   render();
 }
 
+// === IMPORTADOR CONTA AZUL ===
+let caImportData=[];
+
+function openImportContaAzul(){
+  caImportData=[];
+  document.getElementById('ca-preview').style.display='none';
+  document.getElementById('ca-btn-confirmar').style.display='none';
+  document.getElementById('ca-file-input').value='';
+  document.getElementById('modal-conta-azul').classList.add('open');
+}
+
+async function previewContaAzul(event){
+  const file=event.target.files[0];if(!file)return;
+  const tipo=document.querySelector('input[name="ca-tipo"]:checked').value;
+  showToast('Lendo arquivo...');
+  try{
+    const data=await file.arrayBuffer();
+    const wb=XLSX.read(data,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+    caImportData=[];
+    for(const r of rows){
+      const desc=r['Descrição']||r['Descricao']||'';
+      const valorBruto=parseFloat(String(r['Valor original da parcela (R$)']||0).replace(',','.'));
+      const valor=Math.abs(valorBruto);
+      if(!desc||!valor)continue;
+      const vencRaw=r['Data de vencimento']||r['Data de Vencimento']||'';
+      const parte=tipo==='receber'?(r['Nome do cliente']||''):(r['Nome do fornecedor']||'');
+      const cat=r['Categoria 1']||'';
+      const obs=r['Observações']||r['Observacoes']||'';
+      // Converte data DD/MM/YYYY → YYYY-MM-DD
+      let venc='';
+      if(vencRaw){
+        if(String(vencRaw).includes('/')){const p=String(vencRaw).split('/');venc=`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;}
+        else if(typeof vencRaw==='number'){const d=new Date(Math.round((vencRaw-25569)*86400*1000));venc=d.toISOString().slice(0,10);}
+        else venc=String(vencRaw).slice(0,10);
+      }
+      const mes=venc?venc.slice(0,7):'';
+      const statusCA=(r['Situação']||r['Situacao']||'').toLowerCase();
+      const status=statusCA==='quitado'?(tipo==='receber'?'recebido':'pago'):'pendente';
+      caImportData.push({id:genId(),tipo,desc,valor,venc,mes,parte,cat,obs,status,nf:r['Nota fiscal']||'',contrato:'',pago_parcial:0,nao_contabiliza:false,data_pagamento:null});
+    }
+    // Preview
+    const preview=caImportData.slice(0,5);
+    document.getElementById('ca-head').innerHTML='<tr><th style="padding:4px 8px;text-align:left">Descrição</th><th style="padding:4px 8px">Vencimento</th><th style="padding:4px 8px">Parte</th><th style="padding:4px 8px;text-align:right">Valor</th><th style="padding:4px 8px">Status</th></tr>';
+    document.getElementById('ca-body').innerHTML=preview.map(r=>`<tr><td style="padding:4px 8px">${r.desc}</td><td style="padding:4px 8px">${fmtDate(r.venc)}</td><td style="padding:4px 8px">${r.parte}</td><td style="padding:4px 8px;text-align:right">${fmt(r.valor)}</td><td style="padding:4px 8px"><span class="badge ${r.status}">${r.status}</span></td></tr>`).join('');
+    document.getElementById('ca-info').innerHTML=`<i class="ti ti-check"></i> <strong>${caImportData.length} registros</strong> encontrados para importar como <strong>${tipo==='receber'?'A Receber':'A Pagar'}</strong>.`;
+    document.getElementById('ca-preview').style.display='block';
+    document.getElementById('ca-btn-confirmar').style.display='';
+  }catch(e){showToast('Erro ao ler arquivo: '+e.message);}
+}
+
+async function confirmarImportContaAzul(){
+  if(!caImportData.length){showToast('Nenhum dado para importar.');return;}
+  showToast('Importando '+caImportData.length+' registros...');
+  let ok=0;
+  for(const r of caImportData){try{await addItem(r);ok++;}catch(e){console.warn('Erro importando',r.desc,e);}}
+  closeModal('modal-conta-azul');
+  showToast(`✅ ${ok} registros importados do Conta Azul!`);
+  render();
+}
+
+// === PRORROGAR / ALTERAR PARCELAS SUBSEQUENTES ===
+let _prorrogarGrupoId=null;
+
+async function abrirProrrogar(grupoId){
+  _prorrogarGrupoId=grupoId;
+  const all=await getData();
+  const grupo=all.filter(x=>x.grupoId===grupoId&&['pendente','vencido'].includes(x.status)).sort((a,b)=>(a.parcela||0)-(b.parcela||0));
+  if(!grupo.length){showToast('Nenhuma parcela pendente para prorrogar.');return;}
+  const p=grupo[0];
+  document.getElementById('prorr-desc').textContent=p.desc.replace(/ \(\d+\/\d+\)$/,'')+' — '+grupo.length+' parcelas pendentes';
+  document.getElementById('prorr-novo-valor').value=p.valor;
+  document.getElementById('prorr-nova-data').value=p.venc;
+  document.getElementById('prorr-intervalo').value='30';
+  document.getElementById('modal-prorrogar').classList.add('open');
+}
+
+async function confirmarProrrogar(){
+  const all=await getData();
+  const grupo=all.filter(x=>x.grupoId===_prorrogarGrupoId&&['pendente','vencido'].includes(x.status)).sort((a,b)=>(a.parcela||0)-(b.parcela||0));
+  const novoValor=parseFloat(document.getElementById('prorr-novo-valor').value)||grupo[0].valor;
+  const novaData=document.getElementById('prorr-nova-data').value;
+  const intervalo=parseInt(document.getElementById('prorr-intervalo').value)||30;
+  if(!novaData){showToast('Informe a nova data de vencimento da 1ª parcela.');return;}
+  for(let i=0;i<grupo.length;i++){
+    const novoVenc=addDias(novaData,i*intervalo);
+    await updateItem(grupo[i].id,{valor:novoValor,venc:novoVenc,mes:novoVenc.slice(0,7),status:'pendente'});
+  }
+  document.getElementById('modal-prorrogar').classList.remove('open');
+  showToast(`${grupo.length} parcelas atualizadas!`);
+  render();
+}
+
 function showLoading(){document.getElementById('content').innerHTML='<div style="text-align:center;padding:60px;color:var(--text3)"><div style="font-size:28px;margin-bottom:12px">⏳</div><div style="font-size:13px">Carregando...</div></div>';}
 
 async function render(){
@@ -1269,9 +1348,43 @@ async function recalcularCaixa(){
 }
 
 async function salvarSaldoInicial(){
-  const val=parseFloat(document.getElementById('saldo-inicial-input').value)||0;
+  const val=parseFloat(document.getElementById('saldo-inicial-input')?.value)||0;
   await saveSaldo(currentMes,val);
   showToast('Saldo em conta salvo!');
+  caixaSegurando=new Set();
+  render();
+}
+
+// === MÚLTIPLAS CONTAS BANCÁRIAS ===
+let contasBancarias=[];
+(function(){try{const s=localStorage.getItem('ds_contas_bancarias');if(s)contasBancarias=JSON.parse(s);}catch(e){}if(!contasBancarias||!contasBancarias.length)contasBancarias=[{nome:'',valor:0}];})();
+
+function atualizarConta(i,campo,val){
+  if(!contasBancarias[i])contasBancarias[i]={nome:'',valor:0};
+  contasBancarias[i][campo]=campo==='valor'?parseFloat(val)||0:val;
+}
+
+function adicionarConta(){
+  contasBancarias.push({nome:'',valor:0});
+  render();
+}
+
+function removerConta(i){
+  contasBancarias.splice(i,1);
+  if(!contasBancarias.length)contasBancarias=[{nome:'',valor:0}];
+  render();
+}
+
+async function salvarContas(){
+  // Lê os valores atuais dos inputs antes de salvar
+  document.querySelectorAll('#contas-lista > div').forEach((div,i)=>{
+    const inputs=div.querySelectorAll('input');
+    if(inputs[0])contasBancarias[i]={nome:inputs[0].value,valor:parseFloat(inputs[1]?.value)||0};
+  });
+  const total=contasBancarias.reduce((s,c)=>s+(parseFloat(c.valor)||0),0);
+  try{localStorage.setItem('ds_contas_bancarias',JSON.stringify(contasBancarias));}catch(e){}
+  await saveSaldo(currentMes,total);
+  showToast('Contas salvas! Total: '+fmt(total));
   caixaSegurando=new Set();
   render();
 }
@@ -1310,32 +1423,41 @@ async function renderDashboard(all,doMes,recMes,pagMes){
         <div class="table-title">💰 Caixa do dia — ${getMesLabel(currentMes)}</div>
       </div>
       <div style="padding:16px 18px">
-        <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
-          <div>
-            <label style="font-size:11px;color:var(--text2);font-weight:500;display:block;margin-bottom:4px">Saldo em conta no dia 1º (R$)</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input id="saldo-inicial-input" type="number" step="0.01" value="${saldoInicial||''}" placeholder="0,00"
-                style="width:180px;padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-size:13px;background:var(--bg);color:var(--text);font-family:var(--mono)" />
-              <button onclick="salvarSaldoInicial()" class="btn primary" style="padding:7px 12px;font-size:12px"><i class="ti ti-check"></i> Salvar</button>
-            </div>
+        <div style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <label style="font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Contas bancárias</label>
+            <button onclick="adicionarConta()" style="background:none;border:1px solid var(--accent);color:var(--accent);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:var(--font)"><i class="ti ti-plus"></i> Adicionar conta</button>
           </div>
+          <div id="contas-lista" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+            ${(contasBancarias||[{nome:'',valor:0}]).map((c,i)=>`
+            <div style="display:flex;gap:8px;align-items:center">
+              <input placeholder="Nome (ex: Bradesco)" value="${c.nome||''}" oninput="atualizarConta(${i},'nome',this.value)"
+                style="flex:1;padding:6px 10px;border:1px solid var(--border2);border-radius:7px;font-size:12px;background:var(--bg);color:var(--text);font-family:var(--font)">
+              <input type="number" step="0.01" placeholder="R$ 0,00" value="${c.valor||''}" oninput="atualizarConta(${i},'valor',this.value)"
+                style="width:150px;padding:6px 10px;border:1px solid var(--border2);border-radius:7px;font-size:12px;background:var(--bg);color:var(--text);font-family:var(--mono)">
+              ${(contasBancarias||[]).length>1?`<button onclick="removerConta(${i})" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:14px;padding:0 4px"><i class="ti ti-trash"></i></button>`:'&nbsp;'}
+            </div>`).join('')}
+          </div>
+          <button onclick="salvarContas()" class="btn primary" style="padding:6px 14px;font-size:12px"><i class="ti ti-check"></i> Salvar saldos</button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
           <div style="padding:12px 14px;background:var(--blue-light);border-radius:10px">
-            <div style="font-size:11px;color:var(--blue);margin-bottom:4px;font-weight:500">Saldo em conta (dia 1º)</div>
+            <div style="font-size:11px;color:var(--blue);margin-bottom:4px;font-weight:500">Saldo em conta</div>
             <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--blue)">${fmt(saldoInicial)}</div>
-            <div style="font-size:10px;color:var(--blue);opacity:.7;margin-top:3px">valor informado manualmente</div>
+            <div style="font-size:10px;color:var(--blue);opacity:.7;margin-top:3px">${(contasBancarias||[]).filter(c=>c.nome).map(c=>`${c.nome}: ${fmt(parseFloat(c.valor)||0)}`).join(' · ')||'soma das contas'}</div>
           </div>
           <div style="padding:12px 14px;background:var(--surface2);border-radius:10px">
             <div style="font-size:11px;color:var(--text2);margin-bottom:4px;font-weight:500">Movimentação do mês</div>
-            <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${saldo>=0?'var(--accent)':'var(--accent2)'}">${saldo>=0?'+':''}${fmt(saldo)}</div>
+            <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${saldo>=0?'var(--accent)':'var(--accent2)'}"> ${saldo>=0?'+':''}${fmt(saldo)}</div>
             <div style="font-size:10px;color:var(--text3);margin-top:3px">${fmt(rec.recebido)} recebido − ${fmt(pag.recebido)} pago</div>
           </div>
           <div style="padding:12px 14px;background:${saldoAtual>=0?'var(--accent-light)':'var(--accent2-light)'};border-radius:10px;border:2px solid ${saldoAtual>=0?'var(--accent)':'var(--accent2)'}">
             <div style="font-size:11px;color:${saldoAtual>=0?'var(--accent)':'var(--accent2)'};margin-bottom:4px;font-weight:600">💰 Saldo atual em conta</div>
-            <div id="caixa-atual" style="font-size:22px;font-weight:700;font-family:var(--mono);color:${saldoAtual>=0?'var(--accent)':'var(--accent2)'}">${fmt(saldoAtual)}</div>
+            <div id="caixa-atual" style="font-size:22px;font-weight:700;font-family:var(--mono);color:${saldoAtual>=0?'var(--accent)':'var(--accent2)'}"> ${fmt(saldoAtual)}</div>
             <div style="font-size:10px;color:${saldoAtual>=0?'var(--accent)':'var(--accent2)'};margin-top:3px;opacity:.8">quanto tem agora</div>
           </div>
+        </div>
+
         </div>
 
         <div style="border-top:1px solid var(--border);padding-top:14px">
@@ -1408,7 +1530,7 @@ function renderVencidos(all, doMes){
           <td class="td-mono" style="color:var(--accent2)">${fmtDate(r.venc)}</td>
           <td><span style="background:var(--accent2-light);color:var(--accent2);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">${dias}d</span></td>
           <td class="td-right td-mono" style="color:var(--accent);font-weight:500">${fmt(r.valor)}</td>
-          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}','${r.tipo}','${r.status}')">${r.status}</span></td>
+          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')">${r.status}</span></td>
         </tr>`;}).join('')}
     </tbody></table>`:''}
     ${vencPag.length>0?`
@@ -1424,7 +1546,7 @@ function renderVencidos(all, doMes){
           <td class="td-mono" style="color:var(--accent2)">${fmtDate(r.venc)}</td>
           <td><span style="background:var(--accent2-light);color:var(--accent2);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">${dias}d</span></td>
           <td class="td-right td-mono" style="color:var(--accent2);font-weight:500">${fmt(r.valor)}</td>
-          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}','${r.tipo}','${r.status}')">${r.status}</span></td>
+          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')">${r.status}</span></td>
         </tr>`;}).join('')}
     </tbody></table>`:''}
   </div>`;
@@ -1545,9 +1667,10 @@ function renderTabela(tipo, allItems){
             <td><div style="font-weight:500">${descBase}</div><div style="font-size:10px;color:var(--blue);margin-top:2px"><i class="ti ti-git-fork" style="font-size:10px"></i> ${g.length} parcelas — ${pagosG}/${g.length} pagas</div><div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div></td>
             <td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td><td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
             <td style="color:var(--text2)">${r.parte||'—'}</td><td class="td-mono">—</td><td>—</td>
-            <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(totalG)}</td><td>—</td><td></td></tr>
+            <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(totalG)}</td><td>—</td>
+            <td><button onclick="abrirProrrogar('${r.grupoId}')" style="background:none;border:1px solid var(--blue);color:var(--blue);border-radius:6px;padding:2px 8px;font-size:10px;cursor:pointer;font-family:var(--font)" title="Prorrogar/remarcelar parcelas pendentes"><i class="ti ti-calendar-stats"></i> Prorrogar</button></td></tr>
           <tr><td colspan="10" style="padding:0"><div class="parcelas-detail" id="pd-${r.grupoId}">
-            ${g.sort((a,b)=>(a.parcela||0)-(b.parcela||0)).map(p=>`<div class="parcela-item" style="grid-template-columns:28px 1fr auto auto auto auto auto auto"><span style="color:var(--text3);font-weight:600">${p.parcela}/${p.totalParcelas}</span><span>${p.desc}</span><span class="td-mono" style="font-size:10px">${fmtDate(p.venc)}</span><span class="badge ${p.status}" style="cursor:pointer" onclick="toggleStatus('${p.id}','${p.tipo}','${p.status}')" title="Clique para alterar">${p.status}</span><span style="font-family:var(--mono);font-size:11px;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(p.valor)}</span><button onclick="openParcial('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:11px;padding:0 4px" title="Pagamento parcial"><i class="ti ti-coin"></i></button><button onclick="openEdit('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0 4px" title="Editar"><i class="ti ti-edit"></i></button><button onclick="confirmarDelete('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:11px;padding:0 4px" title="Excluir"><i class="ti ti-trash"></i></button></div>`).join('')}
+            ${g.sort((a,b)=>(a.parcela||0)-(b.parcela||0)).map(p=>`<div class="parcela-item" style="grid-template-columns:28px 1fr auto auto auto auto auto auto"><span style="color:var(--text3);font-weight:600">${p.parcela}/${p.totalParcelas}</span><span>${p.desc}</span><span class="td-mono" style="font-size:10px">${fmtDate(p.venc)}</span><span class="badge ${p.status}" style="cursor:pointer" onclick="toggleStatus('${p.id}')" title="Clique para alterar">${p.status}</span><span style="font-family:var(--mono);font-size:11px;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(p.valor)}</span><button onclick="openParcial('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:11px;padding:0 4px" title="Pagamento parcial"><i class="ti ti-coin"></i></button><button onclick="openEdit('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0 4px" title="Editar"><i class="ti ti-edit"></i></button><button onclick="confirmarDelete('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:11px;padding:0 4px" title="Excluir"><i class="ti ti-trash"></i></button></div>`).join('')}
           </div></td></tr>`;
         }
         const pagoParcial=r.pago_parcial||0;
@@ -1560,7 +1683,7 @@ function renderTabela(tipo, allItems){
           <td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
           <td style="color:var(--text2)">${r.parte||'—'}</td>
           <td class="td-mono">${fmtDate(r.venc)}${dataPagDisplay}</td>
-          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}','${r.tipo}','${r.status}')" title="Clique para alterar">${r.status}</span></td>
+          <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')" title="Clique para alterar">${r.status}</span></td>
           <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(r.valor)}</td>
           <td class="td-right td-mono" style="color:var(--blue)">${pagoParcial>0?fmt(pagoParcial):'—'}</td>
           <td style="white-space:nowrap">
@@ -1737,8 +1860,6 @@ async function renderResultado(all,mes){
   const falta=Math.max(0,meta-tRec);
   const pctMeta=meta>0?Math.min(100,Math.round(tRec/meta*100)):0;
   const margem=tRec>0?((tRec-tDep)/tRec*100):0;
-  const resultadoProjetado=meta>0?meta-tDep:null;
-  const margemProjetada=meta>0?(resultadoProjetado/meta*100):0;
 
   const mesesH=[];const d=new Date(mes+'-01');
   for(let i=5;i>=0;i--){const m2=new Date(d);m2.setMonth(m2.getMonth()-i);mesesH.push(m2.toISOString().slice(0,7));}
@@ -1768,38 +1889,6 @@ async function renderResultado(all,mes){
         <div class="metric-sub">${meta>0?(falta>0?'Faltam '+fmt(falta):'Meta atingida!'):'Defina abaixo'}</div>
       </div>
     </div>
-
-    ${meta>0?`
-    <div class="table-wrap" style="margin-bottom:20px;border:2px solid ${resultadoProjetado>=0?'var(--accent)':'var(--accent2)'}">
-      <div class="table-header" style="background:${resultadoProjetado>=0?'var(--accent-light)':'var(--accent2-light)'}">
-        <div class="table-title" style="color:${resultadoProjetado>=0?'var(--accent)':'var(--accent2)'}">
-          <i class="ti ti-calculator"></i> Resultado líquido se bater a meta
-        </div>
-        <div style="font-size:12px;color:var(--text2)">considerando as despesas já lançadas no mês</div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr)">
-        <div style="padding:20px 24px;border-right:1px solid var(--border)">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:6px">Meta de faturamento</div>
-          <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:var(--accent)">${fmt(meta)}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:4px">receita necessária</div>
-        </div>
-        <div style="padding:20px 24px;border-right:1px solid var(--border)">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:6px">Despesas previstas</div>
-          <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:var(--accent2)">${fmt(tDep)}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:4px">${(tDep/meta*100).toFixed(1)}% da meta</div>
-        </div>
-        <div style="padding:20px 24px;background:${resultadoProjetado>=0?'var(--accent-light)':'var(--accent2-light)'}">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:${resultadoProjetado>=0?'var(--accent)':'var(--accent2)'};margin-bottom:6px">Lucro líquido projetado</div>
-          <div style="font-size:28px;font-weight:700;font-family:var(--mono);color:${resultadoProjetado>=0?'var(--accent)':'var(--accent2)'}">${fmt(resultadoProjetado)}</div>
-          <div style="font-size:11px;color:${resultadoProjetado>=0?'var(--accent)':'var(--accent2)'};margin-top:4px;font-weight:500">margem de ${margemProjetada.toFixed(1)}%</div>
-        </div>
-      </div>
-      ${falta>0?`<div style="padding:10px 24px;border-top:1px solid var(--border);background:var(--surface2);font-size:12px;color:var(--text2)">
-        <i class="ti ti-info-circle"></i> Faltam <strong>${fmt(falta)}</strong> em faturamento para atingir a meta.
-        Se recebidos, o lucro líquido seria <strong style="color:${resultadoProjetado>=0?'var(--accent)':'var(--accent2)'}">${fmt(resultadoProjetado)}</strong> com margem de <strong>${margemProjetada.toFixed(1)}%</strong>.
-      </div>`:''}
-    </div>
-    `:''}
 
     <div class="table-wrap" style="margin-bottom:20px">
       <div class="table-header">
@@ -2525,7 +2614,7 @@ async function gerarAnaliseIA(mesPrincipal,mesPrevisao1,mesPrevisao2){
   const metas=await getMetas();
 
   // Orçamentos
-  const orcs=await getOrcsData();
+  const orcs=await getOrcamentos();
   const orcsEnviados=orcs.filter(o=>o.status==='enviado');
   const orcsAprovados=orcs.filter(o=>o.status==='aprovado');
   const orcsPerdidos=orcs.filter(o=>o.status==='perdido');
@@ -2755,6 +2844,35 @@ try{if(localStorage.getItem('ds_sidebar')==='1'){document.getElementById('sideba
 
 render();
 </script>
+<!-- Modal Prorrogar parcelas -->
+<div class="modal-backdrop" id="modal-prorrogar">
+  <div class="modal" style="width:400px">
+    <div class="modal-title">
+      <span><i class="ti ti-calendar-stats"></i> Prorrogar / Remarcelar parcelas</span>
+      <button class="modal-close" onclick="closeModal('modal-prorrogar')"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="prorr-desc" style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px 12px;background:var(--surface2);border-radius:8px;font-weight:500"></div>
+    <div class="form-group">
+      <label class="form-label">Novo valor de cada parcela (R$)</label>
+      <input class="form-input" id="prorr-novo-valor" type="number" step="0.01" placeholder="Deixe em branco para manter"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nova data de vencimento da 1ª parcela pendente</label>
+      <input class="form-input" id="prorr-nova-data" type="date"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Intervalo entre parcelas (dias)</label>
+      <input class="form-input" id="prorr-intervalo" type="number" value="30" min="1"/>
+    </div>
+    <div style="padding:10px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F;font-size:12px;color:#7B6200;margin-top:4px">
+      <i class="ti ti-info-circle"></i> Apenas parcelas <strong>pendentes e vencidas</strong> serão atualizadas. Parcelas já pagas/recebidas não são alteradas.
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeModal('modal-prorrogar')">Cancelar</button>
+      <button class="btn primary" onclick="confirmarProrrogar()"><i class="ti ti-check"></i> Aplicar</button>
+    </div>
+  </div>
+</div>
 <!-- Modal Gerenciar Categorias -->
 <div id="modal-cats" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:2000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:16px;padding:28px;width:100%;max-width:420px;max-height:85vh;overflow-y:auto">
