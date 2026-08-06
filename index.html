@@ -336,12 +336,30 @@ if (sessionStorage.getItem('ds_auth') === '1') {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Valor total (R$)</label>
-        <input class="form-input" id="f-valor" type="number" step="0.01" placeholder="0,00" oninput="atualizarParcelas()" />
+        <input class="form-input" id="f-valor" type="number" step="0.01" placeholder="0,00" oninput="atualizarParcelas();atualizarValorEfetivo()" />
       </div>
       <div class="form-group">
         <label class="form-label">Vencimento (1ª parcela)</label>
         <input class="form-input" id="f-venc" type="date" />
       </div>
+    </div>
+    <div class="section-divider">Descontos, juros e multas</div>
+    <div class="form-row" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="form-group">
+        <label class="form-label">Desconto (R$)</label>
+        <input class="form-input" id="f-desconto" type="number" step="0.01" placeholder="0,00" oninput="atualizarValorEfetivo()" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Juros (R$)</label>
+        <input class="form-input" id="f-juros" type="number" step="0.01" placeholder="0,00" oninput="atualizarValorEfetivo()" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Multa (R$)</label>
+        <input class="form-input" id="f-multa" type="number" step="0.01" placeholder="0,00" oninput="atualizarValorEfetivo()" />
+      </div>
+    </div>
+    <div id="valor-efetivo-box" style="display:none;padding:9px 12px;background:var(--accent-light);border-radius:8px;font-size:12px;color:var(--accent);margin-top:-4px">
+      <i class="ti ti-calculator"></i> Valor efetivo (o que entra/sai de fato): <strong id="valor-efetivo-label" style="font-family:var(--mono)">R$ 0,00</strong>
     </div>
     <div class="section-divider" style="display:flex;align-items:center;justify-content:space-between;">
       <span>Parcelamento</span>
@@ -558,6 +576,23 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <label class="form-label">Data do pagamento</label>
       <input class="form-input" id="toggle-mes-ant-data" type="date" />
     </div>
+    <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:10px">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Desconto</label>
+        <input class="form-input" id="tg-desconto" type="number" step="0.01" placeholder="0,00" oninput="atualizarEfetivoBaixa()" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Juros</label>
+        <input class="form-input" id="tg-juros" type="number" step="0.01" placeholder="0,00" oninput="atualizarEfetivoBaixa()" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Multa</label>
+        <input class="form-input" id="tg-multa" type="number" step="0.01" placeholder="0,00" oninput="atualizarEfetivoBaixa()" />
+      </div>
+    </div>
+    <div id="tg-efetivo-box" style="display:none;padding:9px 12px;background:var(--accent-light);border-radius:8px;font-size:12px;color:var(--accent);margin-bottom:10px">
+      <i class="ti ti-calculator"></i> Valor efetivo: <strong id="tg-efetivo-label" style="font-family:var(--mono)">R$ 0,00</strong>
+    </div>
     <div style="padding:10px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F">
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:#7B6200">
         <input type="checkbox" id="toggle-mes-ant-check" style="margin-top:2px;accent-color:var(--accent2);width:15px;height:15px;flex-shrink:0">
@@ -760,7 +795,9 @@ function localToDb(item) {
     recorrencia: item.recorrencia||null, total_recorrencias: item.totalRecorrencias||null,
     pago_parcial: item.pago_parcial||0, orc_id: item.orc_id||null,
     nao_contabiliza: item.nao_contabiliza||false,
-    data_pagamento: item.data_pagamento||null
+    data_pagamento: item.data_pagamento||null,
+    desconto: numAj(item.desconto), juros: numAj(item.juros), multa: numAj(item.multa),
+    valor_efetivo: valEf(item)
   };
 }
 
@@ -775,7 +812,9 @@ function dbToLocal(row) {
     recorrencia: row.recorrencia||null, totalRecorrencias: row.total_recorrencias||null,
     pago_parcial: parseFloat(row.pago_parcial)||0, orc_id: row.orc_id||null,
     nao_contabiliza: row.nao_contabiliza||false,
-    data_pagamento: row.data_pagamento||null
+    data_pagamento: row.data_pagamento||null,
+    desconto: parseFloat(row.desconto)||0, juros: parseFloat(row.juros)||0,
+    multa: parseFloat(row.multa)||0
   };
 }
 
@@ -849,6 +888,23 @@ const fmtDate=d=>{if(!d)return'—';const p=d.split('-');return p.length===3?`${
 const getMesLabel=m=>{const ms=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];const p=m.split('-');return`${ms[parseInt(p[1])-1]}/${p[0].slice(2)}`;};
 const addDias=(dateStr,dias)=>{const d=new Date(dateStr+'T12:00:00');d.setDate(d.getDate()+dias);return d.toISOString().slice(0,10);};
 
+// === AJUSTES: desconto / juros / multa ===
+const numAj=v=>{const n=parseFloat(v);return isNaN(n)?0:n;};
+const temAjuste=x=>!!(x&&(numAj(x.desconto)||numAj(x.juros)||numAj(x.multa)));
+const valEf=x=>{
+  if(!x)return 0;
+  const base=parseFloat(x.valor)||0;
+  return Math.round((base-numAj(x.desconto)+numAj(x.juros)+numAj(x.multa))*100)/100;
+};
+const ajusteTag=x=>{
+  if(!temAjuste(x))return '';
+  const p=[];
+  if(numAj(x.desconto))p.push('desc '+fmt(numAj(x.desconto)));
+  if(numAj(x.juros))p.push('juros '+fmt(numAj(x.juros)));
+  if(numAj(x.multa))p.push('multa '+fmt(numAj(x.multa)));
+  return '<div style="font-size:9px;color:var(--text3);margin-top:2px;white-space:nowrap">orig. '+fmt(x.valor)+' &middot; '+p.join(' &middot; ')+'</div>';
+};
+
 function showToast(msg,dur=2800){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur);}
 
 function toggleSidebar(){
@@ -881,7 +937,8 @@ function openAdd(){
   const tipoInicial = currentPage==='pagar'?'pagar':'receber';
   document.getElementById('f-tipo').value = tipoInicial;
   atualizarCategorias(tipoInicial);
-  ['f-desc','f-valor','f-parte','f-nf','f-contrato','f-obs'].forEach(id=>document.getElementById(id).value='');
+  ['f-desc','f-valor','f-parte','f-nf','f-contrato','f-obs','f-desconto','f-juros','f-multa'].forEach(id=>document.getElementById(id).value='');
+  atualizarValorEfetivo();
   document.getElementById('f-venc').value=currentMes+'-15';
   document.getElementById('f-status').value='pendente';
   document.getElementById('f-parcelar').checked=false;
@@ -907,6 +964,10 @@ async function openEdit(id){
   document.getElementById('f-nf').value=item.nf||'';
   document.getElementById('f-contrato').value=item.contrato||'';
   document.getElementById('f-obs').value=item.obs||'';
+  document.getElementById('f-desconto').value=item.desconto||'';
+  document.getElementById('f-juros').value=item.juros||'';
+  document.getElementById('f-multa').value=item.multa||'';
+  atualizarValorEfetivo();
   document.getElementById('f-parcelar').checked=false;
   document.getElementById('parcelas-config').style.display='none';
   document.getElementById('f-recorrente').checked=false;
@@ -962,6 +1023,19 @@ function atualizarParcelas(){
   sincronizarTotal();
 }
 
+function atualizarValorEfetivo(){
+  const el=id=>document.getElementById(id);
+  if(!el('f-valor')||!el('f-desconto'))return;
+  const v=parseFloat(el('f-valor').value)||0;
+  const d=parseFloat(el('f-desconto').value)||0;
+  const j=parseFloat(el('f-juros').value)||0;
+  const m=parseFloat(el('f-multa').value)||0;
+  const ef=Math.round((v-d+j+m)*100)/100;
+  const box=el('valor-efetivo-box'),lbl=el('valor-efetivo-label');
+  if(lbl)lbl.textContent=fmt(ef);
+  if(box)box.style.display=(d||j||m)?'block':'none';
+}
+
 function sincronizarTotal(){
   const n=parseInt(document.getElementById('f-nparcelas').value)||0;
   let soma=0;
@@ -988,6 +1062,9 @@ async function salvarLancamento(){
     nf:document.getElementById('f-nf').value.trim(),
     contrato:document.getElementById('f-contrato').value.trim(),
     obs:document.getElementById('f-obs').value.trim(),
+    desconto:parseFloat(document.getElementById('f-desconto').value)||0,
+    juros:parseFloat(document.getElementById('f-juros').value)||0,
+    multa:parseFloat(document.getElementById('f-multa').value)||0,
   };
   if(parcelar&&!editingId){
     const n=parseInt(document.getElementById('f-nparcelas').value)||3;
@@ -998,6 +1075,7 @@ async function salvarLancamento(){
       const elVal=document.getElementById('pval-'+i);
       const valParcela=elVal?parseFloat(elVal.value)||0:valor/n;
       addItem({...base,id:genId(),valor:valParcela,venc:vencP,mes:vencP.slice(0,7),
+        desconto:0,juros:0,multa:0,
         desc:`${desc} (${i+1}/${n})`,grupoId,parcela:i+1,totalParcelas:n,status:'pendente'});
     }
     closeModal('modal-add');showToast(`${n} parcelas criadas.`);render();return;
@@ -1009,6 +1087,7 @@ async function salvarLancamento(){
       const d=new Date(venc+'T12:00:00');d.setMonth(d.getMonth()+i);
       const vencR=d.toISOString().slice(0,10);
       addItem({...base,id:genId(),valor,venc:vencR,mes:vencR.slice(0,7),
+        desconto:0,juros:0,multa:0,
         status:'pendente',grupoRecId,recorrencia:i+1,totalRecorrencias:nMeses+1,
         desc:`${desc}`});
     }
@@ -1027,7 +1106,19 @@ async function confirmarDelete(id){
 }
 
 // Estado global para o modal de mês anterior
-let _toggleMesId=null, _toggleMesNovoStatus=null;
+let _toggleMesId=null, _toggleMesNovoStatus=null, _toggleMesValor=0;
+
+function atualizarEfetivoBaixa(){
+  const el=id=>document.getElementById(id);
+  if(!el('tg-desconto'))return;
+  const d=parseFloat(el('tg-desconto').value)||0;
+  const j=parseFloat(el('tg-juros').value)||0;
+  const m=parseFloat(el('tg-multa').value)||0;
+  const ef=Math.round((_toggleMesValor-d+j+m)*100)/100;
+  const box=el('tg-efetivo-box'),lbl=el('tg-efetivo-label');
+  if(lbl)lbl.textContent=fmt(ef);
+  if(box)box.style.display=(d||j||m)?'block':'none';
+}
 
 async function toggleStatus(id){
   const all=await getData();
@@ -1037,9 +1128,14 @@ async function toggleStatus(id){
     // Abre modal perguntando sobre mês anterior
     _toggleMesId=id;
     _toggleMesNovoStatus=novoStatus;
+    _toggleMesValor=parseFloat(item.valor)||0;
     document.getElementById('toggle-mes-ant-desc').textContent=item.desc+' — '+fmt(item.valor);
     document.getElementById('toggle-mes-ant-check').checked=false;
     document.getElementById('toggle-mes-ant-data').value=new Date().toISOString().split('T')[0];
+    document.getElementById('tg-desconto').value=item.desconto||'';
+    document.getElementById('tg-juros').value=item.juros||'';
+    document.getElementById('tg-multa').value=item.multa||'';
+    atualizarEfetivoBaixa();
     document.getElementById('modal-toggle-mes').classList.add('open');
   } else {
     // Desmarcando — vai direto, remove flag
@@ -1053,7 +1149,10 @@ async function confirmarToggleMes(){
   const mesAnterior=document.getElementById('toggle-mes-ant-check').checked;
   const dataPag=document.getElementById('toggle-mes-ant-data').value;
   document.getElementById('modal-toggle-mes').classList.remove('open');
-  const update={status:_toggleMesNovoStatus,nao_contabiliza:mesAnterior};
+  const update={status:_toggleMesNovoStatus,nao_contabiliza:mesAnterior,
+    desconto:parseFloat(document.getElementById('tg-desconto').value)||0,
+    juros:parseFloat(document.getElementById('tg-juros').value)||0,
+    multa:parseFloat(document.getElementById('tg-multa').value)||0};
   if(dataPag)update.data_pagamento=dataPag;
   await updateItem(_toggleMesId,update);
   _toggleMesId=null;_toggleMesNovoStatus=null;
@@ -1074,20 +1173,20 @@ async function exportarExcel(){
   const data=await getData();
   if(!data.length){showToast('Nenhum dado para exportar.');return;}
   const ws_data=[
-    ['Tipo','Descrição','Cliente/Fornecedor','Categoria','Valor','Vencimento','Status','NF','Contrato','Mês','Parcela','Total Parcelas','Grupo ID','Observações'],
-    ...data.map(r=>[r.tipo==='receber'?'A Receber':'A Pagar',r.desc,r.parte||'',r.cat||'',r.valor,r.venc,r.status,r.nf||'',r.contrato||'',r.mes,r.parcela||'',r.totalParcelas||'',r.grupoId||'',r.obs||''])
+    ['Tipo','Descrição','Cliente/Fornecedor','Categoria','Valor','Desconto','Juros','Multa','Valor efetivo','Vencimento','Status','NF','Contrato','Mês','Parcela','Total Parcelas','Grupo ID','Observações'],
+    ...data.map(r=>[r.tipo==='receber'?'A Receber':'A Pagar',r.desc,r.parte||'',r.cat||'',r.valor,r.desconto||0,r.juros||0,r.multa||0,valEf(r),r.venc,r.status,r.nf||'',r.contrato||'',r.mes,r.parcela||'',r.totalParcelas||'',r.grupoId||'',r.obs||''])
   ];
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(ws_data);
-  ws['!cols']=[{wch:12},{wch:40},{wch:24},{wch:22},{wch:14},{wch:14},{wch:12},{wch:14},{wch:16},{wch:8},{wch:8},{wch:12},{wch:14},{wch:30}];
+  ws['!cols']=[{wch:12},{wch:40},{wch:24},{wch:22},{wch:14},{wch:11},{wch:11},{wch:11},{wch:14},{wch:14},{wch:12},{wch:14},{wch:16},{wch:8},{wch:8},{wch:12},{wch:14},{wch:30}];
   const meses=[...new Set(data.map(x=>x.mes))].sort();
   const resumo_data=[
     ['Mês','Receitas (total)','Despesas (total)','Saldo','Receitas recebidas','Despesas pagas'],
     ...meses.map(m=>{
       const rec=data.filter(x=>x.mes===m&&x.tipo==='receber');
       const pag=data.filter(x=>x.mes===m&&x.tipo==='pagar');
-      const tr=rec.reduce((s,x)=>s+x.valor,0),tp=pag.reduce((s,x)=>s+x.valor,0);
-      return[getMesLabel(m),tr,tp,tr-tp,rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+x.valor,0),pag.filter(x=>x.status==='pago').reduce((s,x)=>s+x.valor,0)];
+      const tr=rec.reduce((s,x)=>s+valEf(x),0),tp=pag.reduce((s,x)=>s+valEf(x),0);
+      return[getMesLabel(m),tr,tp,tr-tp,rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+valEf(x),0),pag.filter(x=>x.status==='pago').reduce((s,x)=>s+valEf(x),0)];
     })
   ];
   const ws2=XLSX.utils.aoa_to_sheet(resumo_data);
@@ -1105,9 +1204,9 @@ async function exportarTabelaPDF(tipo){
   const titulo=tipo==='receber'?'Contas a Receber':'Contas a Pagar';
   const cor=tipo==='receber'?'#2A5C45':'#C4411A';
   const corLight=tipo==='receber'?'#E8F2ED':'#FDECEA';
-  const total=items.reduce((s,x)=>s+x.valor,0);
-  const realizado=items.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+x.valor,0);
-  const pendente=items.filter(x=>['pendente','vencido','parcial'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?x.valor-(x.pago_parcial||0):x.valor),0);
+  const total=items.reduce((s,x)=>s+valEf(x),0);
+  const realizado=items.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
+  const pendente=items.filter(x=>['pendente','vencido','parcial'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
   const rows=items.sort((a,b)=>a.venc.localeCompare(b.venc)).map(r=>{
     const ncTag=r.nao_contabiliza?'<span style="background:#FFF8E1;color:#7B6200;border:1px solid #FFD54F;border-radius:8px;padding:1px 5px;font-size:9px;margin-left:4px">↩ mês ant.</span>':'';
     const statusCor={'recebido':'#2A5C45','pago':'#2A5C45','pendente':'#1A4A7A','vencido':'#C4411A','parcial':'#7B6200'}[r.status]||'#666';
@@ -1119,7 +1218,7 @@ async function exportarTabelaPDF(tipo){
       <td>${r.contrato||'—'}</td>
       <td>${fmtDate(r.venc)}</td>
       <td><span style="background:${statusBg};color:${statusCor};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">${r.status}</span></td>
-      <td style="text-align:right;font-family:monospace;font-weight:500;color:${cor}">${fmt(r.valor)}</td>
+      <td style="text-align:right;font-family:monospace;font-weight:500;color:${cor}">${fmt(valEf(r))}${temAjuste(r)?'<br><small style="color:#888;font-size:9px">orig. '+fmt(r.valor)+'</small>':''}</td>
       ${r.pago_parcial>0?`<td style="text-align:right;font-family:monospace;font-size:11px;color:#1A4A7A">${fmt(r.pago_parcial)}</td>`:'<td>—</td>'}
     </tr>`;
   }).join('');
@@ -1288,7 +1387,28 @@ async function confirmarImportContaAzul(){
 // === PRORROGAR / ALTERAR PARCELAS SUBSEQUENTES ===
 let _prorrogarGrupoId=null;
 
+let _prorrogarModo='grupo', _prorrogarItemId=null;
+
+async function abrirProrrogarItem(id){
+  _prorrogarModo='item'; _prorrogarItemId=id; _prorrogarGrupoId=null;
+  const all=await getData();
+  const item=all.find(x=>x.id===id);
+  if(!item){showToast('Lançamento não encontrado.');return;}
+  document.getElementById('prorr-titulo').innerHTML='<i class="ti ti-calendar-stats"></i> Prorrogar pagamento';
+  document.getElementById('prorr-desc').textContent=item.desc+' — vence em '+fmtDate(item.venc);
+  document.getElementById('prorr-novo-valor').value=item.valor;
+  document.getElementById('prorr-nova-data').value=item.venc;
+  document.getElementById('prorr-intervalo').value='30';
+  document.getElementById('prorr-box-intervalo').style.display='none';
+  document.getElementById('prorr-aviso').innerHTML='<i class="ti ti-info-circle"></i> Apenas este lançamento será remarcado. O status volta para <strong>pendente</strong>.';
+  document.getElementById('modal-prorrogar').classList.add('open');
+}
+
 async function abrirProrrogar(grupoId){
+  _prorrogarModo='grupo'; _prorrogarItemId=null;
+  document.getElementById('prorr-titulo').innerHTML='<i class="ti ti-calendar-stats"></i> Prorrogar / Remarcelar parcelas';
+  document.getElementById('prorr-box-intervalo').style.display='';
+  document.getElementById('prorr-aviso').innerHTML='<i class="ti ti-info-circle"></i> Apenas parcelas <strong>pendentes e vencidas</strong> serão atualizadas. Parcelas já pagas/recebidas não são alteradas.';
   _prorrogarGrupoId=grupoId;
   const all=await getData();
   const grupo=all.filter(x=>x.grupoId===grupoId&&['pendente','vencido'].includes(x.status)).sort((a,b)=>(a.parcela||0)-(b.parcela||0));
@@ -1302,6 +1422,20 @@ async function abrirProrrogar(grupoId){
 }
 
 async function confirmarProrrogar(){
+  if(_prorrogarModo==='item'){
+    const all0=await getData();
+    const item=all0.find(x=>x.id===_prorrogarItemId);
+    if(!item){showToast('Lançamento não encontrado.');return;}
+    const nv=parseFloat(document.getElementById('prorr-novo-valor').value);
+    const nd=document.getElementById('prorr-nova-data').value;
+    if(!nd){showToast('Informe a nova data de vencimento.');return;}
+    await updateItem(item.id,{valor:isNaN(nv)?item.valor:nv,venc:nd,mes:nd.slice(0,7),status:'pendente'});
+    document.getElementById('modal-prorrogar').classList.remove('open');
+    _prorrogarItemId=null;
+    showToast('Pagamento prorrogado para '+fmtDate(nd)+'.');
+    render();
+    return;
+  }
   const all=await getData();
   const grupo=all.filter(x=>x.grupoId===_prorrogarGrupoId&&['pendente','vencido'].includes(x.status)).sort((a,b)=>(a.parcela||0)-(b.parcela||0));
   const novoValor=parseFloat(document.getElementById('prorr-novo-valor').value)||grupo[0].valor;
@@ -1473,10 +1607,10 @@ async function render(){
 }
 
 const calcM=items=>({
-  total:items.reduce((s,x)=>s+x.valor,0),
-  recebido:items.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+x.valor,0),
-  pendente:items.filter(x=>x.status==='pendente').reduce((s,x)=>s+x.valor,0),
-  vencido:items.filter(x=>x.status==='vencido').reduce((s,x)=>s+x.valor,0),
+  total:items.reduce((s,x)=>s+valEf(x),0),
+  recebido:items.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0),
+  pendente:items.filter(x=>x.status==='pendente').reduce((s,x)=>s+valEf(x),0),
+  vencido:items.filter(x=>x.status==='vencido').reduce((s,x)=>s+valEf(x),0),
   parcial_pago:items.filter(x=>x.status==='parcial').reduce((s,x)=>s+(x.pago_parcial||0),0),
 });
 
@@ -1496,7 +1630,7 @@ async function recalcularCaixa(){
   const saldoAtual=saldoInicial;
 
   const despPend=all.filter(x=>x.mes===mes&&x.tipo==='pagar'&&!['pago'].includes(x.status));
-  const totalSelecionado=despPend.filter(x=>caixaSegurando.has(x.id)).reduce((s,x)=>s+x.valor,0);
+  const totalSelecionado=despPend.filter(x=>caixaSegurando.has(x.id)).reduce((s,x)=>s+valEf(x),0);
   const saldoApos=saldoAtual-totalSelecionado;
 
   const elAtual=document.getElementById('caixa-atual');
@@ -1575,7 +1709,7 @@ async function renderDashboard(all,doMes,recMes,pagMes){
   const saldoInicial=saldos[currentMes]||0;
   const saldoAtual=saldoInicial;
   const despPend=pagMes.filter(x=>!['pago'].includes(x.status));
-  const totalPendente=despPend.reduce((s,x)=>s+(x.status==='parcial'?x.valor-(x.pago_parcial||0):x.valor),0);
+  const totalPendente=despPend.reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
   const recAberto=rec.pendente+rec.vencido;
   const pagAberto=pag.total-pag.recebido-pag.parcial_pago;
   const nVencRec=recMes.filter(x=>x.status==='vencido').length;
@@ -1653,7 +1787,7 @@ async function renderDashboard(all,doMes,recMes,pagMes){
               <input type="checkbox" id="seg-${d.id}" ${caixaSegurando.has(d.id)?'checked':''} onchange="toggleSegurando('${d.id}')" style="accent-color:var(--accent);width:15px;height:15px;flex-shrink:0" />
               <span style="flex:1;font-weight:${caixaSegurando.has(d.id)?'600':'400'};color:${caixaSegurando.has(d.id)?'var(--text)':'var(--text2)'}">${d.desc}</span>
               <span style="color:var(--text3);font-size:10px;margin-right:4px">${fmtDate(d.venc)}</span>
-              <span style="font-family:var(--mono);font-weight:600;color:${caixaSegurando.has(d.id)?'var(--accent2)':'var(--text3)'};min-width:85px;text-align:right">${fmt(d.valor)}</span>
+              <span style="font-family:var(--mono);font-weight:600;color:${caixaSegurando.has(d.id)?'var(--accent2)':'var(--text3)'};min-width:85px;text-align:right">${fmt(valEf(d))}</span>
             </label>`).join('')}
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
@@ -1689,8 +1823,8 @@ function renderVencidos(all, doMes){
   const vencRec=all.filter(x=>x.tipo==='receber'&&x.venc<today&&!['recebido'].includes(x.status));
   const vencPag=all.filter(x=>x.tipo==='pagar'&&x.venc<today&&!['pago'].includes(x.status));
   if(!vencRec.length&&!vencPag.length) return '';
-  const totalVencRec=vencRec.reduce((s,x)=>s+x.valor,0);
-  const totalVencPag=vencPag.reduce((s,x)=>s+x.valor,0);
+  const totalVencRec=vencRec.reduce((s,x)=>s+valEf(x),0);
+  const totalVencPag=vencPag.reduce((s,x)=>s+valEf(x),0);
   return`
   <div class="table-wrap" style="border:2px solid var(--accent2)">
     <div class="table-header" style="background:var(--accent2-light)">
@@ -1709,7 +1843,7 @@ function renderVencidos(all, doMes){
           <td style="color:var(--text2)">${r.parte||'—'}</td>
           <td class="td-mono" style="color:var(--accent2)">${fmtDate(r.venc)}</td>
           <td><span style="background:var(--accent2-light);color:var(--accent2);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">${dias}d</span></td>
-          <td class="td-right td-mono" style="color:var(--accent);font-weight:500">${fmt(r.valor)}</td>
+          <td class="td-right td-mono" style="color:var(--accent);font-weight:500">${fmt(valEf(r))}</td>
           <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')">${r.status}</span></td>
         </tr>`;}).join('')}
     </tbody></table>`:''}
@@ -1725,7 +1859,7 @@ function renderVencidos(all, doMes){
           <td style="color:var(--text2)">${r.parte||'—'}</td>
           <td class="td-mono" style="color:var(--accent2)">${fmtDate(r.venc)}</td>
           <td><span style="background:var(--accent2-light);color:var(--accent2);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">${dias}d</span></td>
-          <td class="td-right td-mono" style="color:var(--accent2);font-weight:500">${fmt(r.valor)}</td>
+          <td class="td-right td-mono" style="color:var(--accent2);font-weight:500">${fmt(valEf(r))}</td>
           <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')">${r.status}</span></td>
         </tr>`;}).join('')}
     </tbody></table>`:''}
@@ -1737,7 +1871,7 @@ function renderProxVenc(all){
   const prox=all.filter(x=>x.venc>=today&&x.status==='pendente').sort((a,b)=>a.venc.localeCompare(b.venc)).slice(0,6);
   if(!prox.length)return'<div class="empty"><i class="ti ti-calendar-check"></i><p>Nenhum vencimento próximo.</p></div>';
   return`<table><thead><tr><th>Descrição</th><th>NF</th><th>Contrato</th><th>Parte</th><th>Venc.</th><th>Tipo</th><th class="td-right">Valor</th></tr></thead><tbody>
-    ${prox.map(r=>`<tr><td>${r.desc}</td><td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td><td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td><td style="color:var(--text2)">${r.parte||'—'}</td><td class="td-mono">${fmtDate(r.venc)}</td><td><span class="badge ${r.tipo==='receber'?'recebido':'vencido'}">${r.tipo==='receber'?'Receber':'Pagar'}</span></td><td class="td-right td-mono" style="color:${r.tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(r.valor)}</td></tr>`).join('')}
+    ${prox.map(r=>`<tr><td>${r.desc}</td><td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td><td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td><td style="color:var(--text2)">${r.parte||'—'}</td><td class="td-mono">${fmtDate(r.venc)}</td><td><span class="badge ${r.tipo==='receber'?'recebido':'vencido'}">${r.tipo==='receber'?'Receber':'Pagar'}</span></td><td class="td-right td-mono" style="color:${r.tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(valEf(r))}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
@@ -1748,14 +1882,14 @@ function renderChartRV(all){
     const ctx=document.getElementById('chart-rv');if(!ctx)return;
     if(ctx._ch)ctx._ch.destroy();
     ctx._ch=new Chart(ctx,{type:'bar',data:{labels:meses.map(getMesLabel),datasets:[
-      {label:'Receitas',data:meses.map(m=>all.filter(x=>x.mes===m&&x.tipo==='receber').reduce((s,x)=>s+x.valor,0)),backgroundColor:'#2A5C45',borderRadius:4},
-      {label:'Despesas',data:meses.map(m=>all.filter(x=>x.mes===m&&x.tipo==='pagar').reduce((s,x)=>s+x.valor,0)),backgroundColor:'#C4411A',borderRadius:4}
+      {label:'Receitas',data:meses.map(m=>all.filter(x=>x.mes===m&&x.tipo==='receber').reduce((s,x)=>s+valEf(x),0)),backgroundColor:'#2A5C45',borderRadius:4},
+      {label:'Despesas',data:meses.map(m=>all.filter(x=>x.mes===m&&x.tipo==='pagar').reduce((s,x)=>s+valEf(x),0)),backgroundColor:'#C4411A',borderRadius:4}
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{font:{size:10},callback:v=>'R$'+Intl.NumberFormat('pt-BR',{notation:'compact'}).format(v)},grid:{color:'rgba(0,0,0,0.05)'}},x:{ticks:{font:{size:10}},grid:{display:false}}}}});
   },50);
 }
 
 function renderChartCat(items){
-  const cats={};items.forEach(x=>{cats[x.cat||'Outros']=(cats[x.cat||'Outros']||0)+x.valor;});
+  const cats={};items.forEach(x=>{cats[x.cat||'Outros']=(cats[x.cat||'Outros']||0)+valEf(x);});
   const labels=Object.keys(cats),data=Object.values(cats);
   const colors=['#2A5C45','#1A4A7A','#B57C1A','#C4411A','#6B3FA0','#1A7A5C','#7A3A1A','#3A5C7A','#5C3A7A'];
   setTimeout(()=>{
@@ -1793,9 +1927,9 @@ function renderTabela(tipo, allItems){
     else rows.push(r);
   });
 
-  const totalFilt=filtered.reduce((s,x)=>s+x.valor,0);
-  const realizadoFilt=filtered.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+x.valor,0);
-  const pendenteFilt=filtered.filter(x=>['pendente','vencido','parcial'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?x.valor-(x.pago_parcial||0):x.valor),0);
+  const totalFilt=filtered.reduce((s,x)=>s+valEf(x),0);
+  const realizadoFilt=filtered.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
+  const pendenteFilt=filtered.filter(x=>['pendente','vencido','parcial'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
   const tituloTabela=usandoPeriodo?`${tipo==='receber'?'A Receber':'A Pagar'} — ${tblDe?fmtDate(tblDe):'início'} até ${tblAte?fmtDate(tblAte):'hoje'}`:`${tipo==='receber'?'A Receber':'A Pagar'} — ${getMesLabel(currentMes)}`;
   const temFiltroAtivo=tblSearch||tblStatus!=='todos'||tblDia||usandoPeriodo;
 
@@ -1839,7 +1973,7 @@ function renderTabela(tipo, allItems){
       '<table><thead><tr><th></th><th>Descrição</th><th>NF</th><th>Contrato</th><th>Parte</th><th>Venc.</th><th>Status</th><th class="td-right">Valor</th><th class="td-right">Pago parcial</th><th></th></tr></thead><tbody>'+
       rows.map(r=>{
         if(r._isGroup){
-          const g=r._grupo,totalG=g.reduce((s,x)=>s+x.valor,0);
+          const g=r._grupo,totalG=g.reduce((s,x)=>s+valEf(x),0);
           const pagosG=g.filter(x=>['recebido','pago'].includes(x.status)).length;
           const pct=Math.round(pagosG/g.length*100);
           const descBase=r.desc.replace(/ \(\d+\/\d+\)$/,'');
@@ -1850,7 +1984,7 @@ function renderTabela(tipo, allItems){
             <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(totalG)}</td><td>—</td>
             <td><button onclick="abrirProrrogar('${r.grupoId}')" style="background:none;border:1px solid var(--blue);color:var(--blue);border-radius:6px;padding:2px 8px;font-size:10px;cursor:pointer;font-family:var(--font)" title="Prorrogar/remarcelar parcelas pendentes"><i class="ti ti-calendar-stats"></i> Prorrogar</button></td></tr>
           <tr><td colspan="10" style="padding:0"><div class="parcelas-detail" id="pd-${r.grupoId}">
-            ${g.sort((a,b)=>(a.parcela||0)-(b.parcela||0)).map(p=>`<div class="parcela-item" style="grid-template-columns:28px 1fr auto auto auto auto auto auto"><span style="color:var(--text3);font-weight:600">${p.parcela}/${p.totalParcelas}</span><span>${p.desc}</span><span class="td-mono" style="font-size:10px">${fmtDate(p.venc)}</span><span class="badge ${p.status}" style="cursor:pointer" onclick="toggleStatus('${p.id}')" title="Clique para alterar">${p.status}</span><span style="font-family:var(--mono);font-size:11px;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(p.valor)}</span><button onclick="openParcial('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:11px;padding:0 4px" title="Pagamento parcial"><i class="ti ti-coin"></i></button><button onclick="openEdit('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0 4px" title="Editar"><i class="ti ti-edit"></i></button><button onclick="confirmarDelete('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:11px;padding:0 4px" title="Excluir"><i class="ti ti-trash"></i></button></div>`).join('')}
+            ${g.sort((a,b)=>(a.parcela||0)-(b.parcela||0)).map(p=>`<div class="parcela-item" style="grid-template-columns:28px 1fr auto auto auto auto auto auto auto"><span style="color:var(--text3);font-weight:600">${p.parcela}/${p.totalParcelas}</span><span>${p.desc}</span><span class="td-mono" style="font-size:10px">${fmtDate(p.venc)}</span><span class="badge ${p.status}" style="cursor:pointer" onclick="toggleStatus('${p.id}')" title="Clique para alterar">${p.status}</span><span style="font-family:var(--mono);font-size:11px;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}" title="${temAjuste(p)?'valor original '+fmt(p.valor):''}">${fmt(valEf(p))}</span><button onclick="abrirProrrogarItem('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:11px;padding:0 4px" title="Prorrogar esta parcela"><i class="ti ti-calendar-stats"></i></button><button onclick="openParcial('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:11px;padding:0 4px" title="Pagamento parcial"><i class="ti ti-coin"></i></button><button onclick="openEdit('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0 4px" title="Editar"><i class="ti ti-edit"></i></button><button onclick="confirmarDelete('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:11px;padding:0 4px" title="Excluir"><i class="ti ti-trash"></i></button></div>`).join('')}
           </div></td></tr>`;
         }
         const pagoParcial=r.pago_parcial||0;
@@ -1864,9 +1998,10 @@ function renderTabela(tipo, allItems){
           <td style="color:var(--text2)">${r.parte||'—'}</td>
           <td class="td-mono">${fmtDate(r.venc)}${dataPagDisplay}</td>
           <td><span class="badge ${r.status}" style="cursor:pointer" onclick="toggleStatus('${r.id}')" title="Clique para alterar">${r.status}</span></td>
-          <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(r.valor)}</td>
+          <td class="td-right td-mono" style="font-weight:500;color:${tipo==='receber'?'var(--accent)':'var(--accent2)'}">${fmt(valEf(r))}${ajusteTag(r)}</td>
           <td class="td-right td-mono" style="color:var(--blue)">${pagoParcial>0?fmt(pagoParcial):'—'}</td>
           <td style="white-space:nowrap">
+            <button onclick="abrirProrrogarItem('${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);padding:2px 4px;font-size:13px" title="Prorrogar pagamento"><i class="ti ti-calendar-stats"></i></button>
             <button onclick="openParcial('${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--blue);padding:2px 4px;font-size:13px" title="Pagamento parcial"><i class="ti ti-coin"></i></button>
             <button onclick="openEdit('${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:2px 4px;font-size:13px" title="Editar"><i class="ti ti-edit"></i></button>
             <button onclick="confirmarDelete('${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--accent2);padding:2px 4px;font-size:13px" title="Excluir"><i class="ti ti-trash"></i></button>
@@ -1896,8 +2031,8 @@ function renderFluxoMensal(all){
   for(let i=5;i>=0;i--){const m=new Date(d);m.setMonth(m.getMonth()-i);meses.push(m.toISOString().slice(0,7));}
   let sa=0;
   const rows=meses.map(m=>{
-    const rec=all.filter(x=>x.mes===m&&x.tipo==='receber').reduce((s,x)=>s+x.valor,0);
-    const pag=all.filter(x=>x.mes===m&&x.tipo==='pagar').reduce((s,x)=>s+x.valor,0);
+    const rec=all.filter(x=>x.mes===m&&x.tipo==='receber').reduce((s,x)=>s+valEf(x),0);
+    const pag=all.filter(x=>x.mes===m&&x.tipo==='pagar').reduce((s,x)=>s+valEf(x),0);
     const saldo=rec-pag;sa+=saldo;return{m,rec,pag,saldo,sa};
   });
   const maxV=Math.max(...rows.map(r=>Math.max(r.rec,r.pag)),1);
@@ -1936,8 +2071,8 @@ function renderFluxoDiario(all){
   doMes.forEach(x=>{
     const dia=x.venc||`${currentMes}-01`;
     if(!diasMap[dia])diasMap[dia]={rec:0,pag:0,items:[]};
-    if(x.tipo==='receber')diasMap[dia].rec+=x.valor;
-    else diasMap[dia].pag+=x.valor;
+    if(x.tipo==='receber')diasMap[dia].rec+=valEf(x);
+    else diasMap[dia].pag+=valEf(x);
     diasMap[dia].items.push(x);
   });
   const dias=Object.keys(diasMap).sort();
@@ -1974,7 +2109,7 @@ function renderFluxoDiario(all){
           </tr>
           <tr style="display:none"><td colspan="5" style="padding:0;background:var(--surface2)">
             <table style="width:100%;border:none"><tbody>
-              ${r.items.map(i=>`<tr style="border:none"><td style="padding:6px 24px;font-size:11px;color:var(--text2)">${i.desc}</td><td style="font-size:11px;color:var(--text3);padding:6px 8px">${i.parte||''}</td><td style="font-size:11px;padding:6px 8px"><span class="badge ${i.status}">${i.status}</span></td><td class="td-right td-mono" style="font-size:11px;padding:6px 24px 6px 8px;color:${i.tipo==='receber'?'var(--accent)':'var(--accent2)'}">${i.tipo==='receber'?'+':'-'}${fmt(i.valor)}</td></tr>`).join('')}
+              ${r.items.map(i=>`<tr style="border:none"><td style="padding:6px 24px;font-size:11px;color:var(--text2)">${i.desc}</td><td style="font-size:11px;color:var(--text3);padding:6px 8px">${i.parte||''}</td><td style="font-size:11px;padding:6px 8px"><span class="badge ${i.status}">${i.status}</span></td><td class="td-right td-mono" style="font-size:11px;padding:6px 24px 6px 8px;color:${i.tipo==='receber'?'var(--accent)':'var(--accent2)'}">${i.tipo==='receber'?'+':'-'}${fmt(valEf(i))}</td></tr>`).join('')}
             </tbody></table>
           </td></tr>
         `).join('')}
@@ -1994,8 +2129,8 @@ function renderFluxoDiario(all){
 async function renderDRE(all,mes){
   const items=all.filter(x=>x.mes===mes);
   const rec=items.filter(x=>x.tipo==='receber'),dep=items.filter(x=>x.tipo==='pagar');
-  const bycat=arr=>{const m={};arr.forEach(x=>{m[x.cat||'Outros']=(m[x.cat||'Outros']||0)+x.valor;});return m;};
-  const tRec=rec.reduce((s,x)=>s+x.valor,0),tDep=dep.reduce((s,x)=>s+x.valor,0),res=tRec-tDep;
+  const bycat=arr=>{const m={};arr.forEach(x=>{m[x.cat||'Outros']=(m[x.cat||'Outros']||0)+valEf(x);});return m;};
+  const tRec=rec.reduce((s,x)=>s+valEf(x),0),tDep=dep.reduce((s,x)=>s+valEf(x),0),res=tRec-tDep;
   const rc=bycat(rec),dc=bycat(dep);
   const rowcat=(c,v)=>`<div class="dre-row dre-indent"><span>${c}</span><span class="td-mono" style="font-size:13px">${fmt(v)}</span></div>`;
   document.getElementById('content').innerHTML=`
@@ -2030,10 +2165,10 @@ async function renderResultado(all,mes){
   const items=all.filter(x=>x.mes===mes);
   const rec=items.filter(x=>x.tipo==='receber');
   const dep=items.filter(x=>x.tipo==='pagar');
-  const tRec=rec.reduce((s,x)=>s+x.valor,0);
-  const tDep=dep.reduce((s,x)=>s+x.valor,0);
-  const recebido=rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+x.valor,0);
-  const pago=dep.filter(x=>x.status==='pago').reduce((s,x)=>s+x.valor,0);
+  const tRec=rec.reduce((s,x)=>s+valEf(x),0);
+  const tDep=dep.reduce((s,x)=>s+valEf(x),0);
+  const recebido=rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+valEf(x),0);
+  const pago=dep.filter(x=>x.status==='pago').reduce((s,x)=>s+valEf(x),0);
   const resultado=tRec-tDep;
   const metas=await getMetas();
   const meta=metas[mes]||0;
@@ -2043,7 +2178,7 @@ async function renderResultado(all,mes){
 
   const mesesH=[];const d=new Date(mes+'-01');
   for(let i=5;i>=0;i--){const m2=new Date(d);m2.setMonth(m2.getMonth()-i);mesesH.push(m2.toISOString().slice(0,7));}
-  const histRec=mesesH.map(m2=>all.filter(x=>x.mes===m2&&x.tipo==='receber').reduce((s,x)=>s+x.valor,0));
+  const histRec=mesesH.map(m2=>all.filter(x=>x.mes===m2&&x.tipo==='receber').reduce((s,x)=>s+valEf(x),0));
   const histMeta=mesesH.map(m2=>metas[m2]||0);
 
   document.getElementById('content').innerHTML=`
@@ -2125,7 +2260,7 @@ async function renderResultado(all,mes){
       <table>
         <thead><tr><th>Categoria</th><th>Tipo</th><th class="td-right">Valor</th><th class="td-right">% do total</th></tr></thead>
         <tbody>
-          ${[...Object.entries((() => {const m2={};items.forEach(x=>{const k=x.cat||'Outros';if(!m2[k])m2[k]={rec:0,dep:0};m2[k][x.tipo==='receber'?'rec':'dep']+=x.valor;});return m2;})())].sort((a,b)=>(b[1].rec+b[1].dep)-(a[1].rec+a[1].dep)).map(([cat,v])=>`
+          ${[...Object.entries((() => {const m2={};items.forEach(x=>{const k=x.cat||'Outros';if(!m2[k])m2[k]={rec:0,dep:0};m2[k][x.tipo==='receber'?'rec':'dep']+=valEf(x);});return m2;})())].sort((a,b)=>(b[1].rec+b[1].dep)-(a[1].rec+a[1].dep)).map(([cat,v])=>`
             ${v.rec>0?`<tr><td>${cat}</td><td><span class="badge recebido">Receita</span></td><td class="td-right td-mono" style="color:var(--accent)">${fmt(v.rec)}</td><td class="td-right td-mono">${tRec>0?(v.rec/tRec*100).toFixed(1):'0'}%</td></tr>`:''}
             ${v.dep>0?`<tr><td>${cat}</td><td><span class="badge vencido">Despesa</span></td><td class="td-right td-mono" style="color:var(--accent2)">${fmt(v.dep)}</td><td class="td-right td-mono">${tDep>0?(v.dep/tDep*100).toFixed(1):'0'}%</td></tr>`:''}
           `).join('')}
@@ -2169,10 +2304,11 @@ async function openParcial(id){
   const item=all.find(x=>x.id===id);if(!item)return;
   parcialId=id;
   const jaPago=item.pago_parcial||0;
-  const restante=item.valor-jaPago;
+  const totalItem=valEf(item);
+  const restante=totalItem-jaPago;
   document.getElementById('parcial-desc').innerHTML=
     `<strong>${item.desc}</strong><br>
-    <span>Valor total: <strong>${fmt(item.valor)}</strong></span>
+    <span>Valor total: <strong>${fmt(totalItem)}</strong>${temAjuste(item)?' <small style="color:var(--text3)">(com ajustes)</small>':''}</span>
     ${jaPago>0?`<br><span>Já pago antes: <strong style="color:var(--accent)">${fmt(jaPago)}</strong> &nbsp;|&nbsp; Restante: <strong style="color:var(--accent2)">${fmt(restante)}</strong></span>`:''}`;
   document.getElementById('parcial-valor').value='';
   document.getElementById('parcial-data').value=new Date().toISOString().split('T')[0];
@@ -2188,12 +2324,12 @@ async function openParcial(id){
     const resumo=document.getElementById('parcial-resumo');
     if(v>0){
       resumo.style.display='block';
-      if(novoTotal>=item.valor){
+      if(novoTotal>=totalItem){
         resumo.style.background='var(--accent-light)';resumo.style.color='var(--accent)';
         resumo.innerHTML=`✓ Total pago: ${fmt(novoTotal)} — será marcado como <strong>pago</strong>`;
       } else {
         resumo.style.background='var(--blue-light)';resumo.style.color='var(--blue)';
-        resumo.innerHTML=`Pago parcial: ${fmt(novoTotal)} de ${fmt(item.valor)} — restante: <strong>${fmt(item.valor-novoTotal)}</strong>`;
+        resumo.innerHTML=`Pago parcial: ${fmt(novoTotal)} de ${fmt(totalItem)} — restante: <strong>${fmt(totalItem-novoTotal)}</strong>`;
       }
     } else { resumo.style.display='none'; }
   };
@@ -2207,14 +2343,14 @@ async function salvarParcial(){
   const mesAnterior=document.getElementById('parcial-mes-anterior').checked;
   const dataPag=document.getElementById('parcial-data').value;
   const novoTotal=(item.pago_parcial||0)+v;
-  const novoStatus=novoTotal>=item.valor?'pago':'parcial';
+  const novoStatus=novoTotal>=valEf(item)?'pago':'parcial';
   const update={pago_parcial:novoTotal,status:novoStatus};
   if(mesAnterior)update.nao_contabiliza=true;
   if(dataPag)update.data_pagamento=dataPag;
   await updateItem(parcialId,update);
   closeModal('modal-parcial');
   showToast(novoStatus==='pago'?`Pago integralmente!${mesAnterior?' (não contabilizado no caixa deste mês)':''}`:
-    `Parcial registrado: ${fmt(novoTotal)} de ${fmt(item.valor)}`);
+    `Parcial registrado: ${fmt(novoTotal)} de ${fmt(valEf(item))}`);
   render();
 }
 let orcFiltro='todos';
@@ -2775,14 +2911,14 @@ function buildResumoMes(all,mes){
   const items=all.filter(x=>x.mes===mes);
   const rec=items.filter(x=>x.tipo==='receber');
   const dep=items.filter(x=>x.tipo==='pagar');
-  const tRec=rec.reduce((s,x)=>s+x.valor,0);
-  const tDep=dep.reduce((s,x)=>s+x.valor,0);
-  const recebido=rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+x.valor,0);
-  const pago=dep.filter(x=>['pago'].includes(x.status)).reduce((s,x)=>s+x.valor,0);
+  const tRec=rec.reduce((s,x)=>s+valEf(x),0);
+  const tDep=dep.reduce((s,x)=>s+valEf(x),0);
+  const recebido=rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+valEf(x),0);
+  const pago=dep.filter(x=>['pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
   const pagoParcial=dep.filter(x=>x.status==='parcial').reduce((s,x)=>s+(x.pago_parcial||0),0);
-  const pendRec=rec.filter(x=>!['recebido'].includes(x.status)).reduce((s,x)=>s+x.valor,0);
-  const pendPag=dep.filter(x=>!['pago'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?x.valor-(x.pago_parcial||0):x.valor),0);
-  const bycat=(arr)=>{const m={};arr.forEach(x=>{m[x.cat||'Outros']=(m[x.cat||'Outros']||0)+x.valor;});return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
+  const pendRec=rec.filter(x=>!['recebido'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
+  const pendPag=dep.filter(x=>!['pago'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
+  const bycat=(arr)=>{const m={};arr.forEach(x=>{m[x.cat||'Outros']=(m[x.cat||'Outros']||0)+valEf(x);});return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
   return{tRec,tDep,recebido,pago,pagoParcial,pendRec,pendPag,resultado:tRec-tDep,margem:tRec>0?((tRec-tDep)/tRec*100):0,recCats:bycat(rec),depCats:bycat(dep),nRec:rec.length,nDep:dep.length,vencidos:rec.filter(x=>x.status==='vencido'),items};
 }
 
@@ -3028,23 +3164,23 @@ render();
 <div class="modal-backdrop" id="modal-prorrogar">
   <div class="modal" style="width:400px">
     <div class="modal-title">
-      <span><i class="ti ti-calendar-stats"></i> Prorrogar / Remarcelar parcelas</span>
+      <span id="prorr-titulo"><i class="ti ti-calendar-stats"></i> Prorrogar / Remarcelar parcelas</span>
       <button class="modal-close" onclick="closeModal('modal-prorrogar')"><i class="ti ti-x"></i></button>
     </div>
     <div id="prorr-desc" style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px 12px;background:var(--surface2);border-radius:8px;font-weight:500"></div>
     <div class="form-group">
-      <label class="form-label">Novo valor de cada parcela (R$)</label>
+      <label class="form-label">Novo valor (R$)</label>
       <input class="form-input" id="prorr-novo-valor" type="number" step="0.01" placeholder="Deixe em branco para manter"/>
     </div>
     <div class="form-group">
-      <label class="form-label">Nova data de vencimento da 1ª parcela pendente</label>
+      <label class="form-label">Nova data de vencimento</label>
       <input class="form-input" id="prorr-nova-data" type="date"/>
     </div>
-    <div class="form-group">
+    <div class="form-group" id="prorr-box-intervalo">
       <label class="form-label">Intervalo entre parcelas (dias)</label>
       <input class="form-input" id="prorr-intervalo" type="number" value="30" min="1"/>
     </div>
-    <div style="padding:10px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F;font-size:12px;color:#7B6200;margin-top:4px">
+    <div id="prorr-aviso" style="padding:10px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F;font-size:12px;color:#7B6200;margin-top:4px">
       <i class="ti ti-info-circle"></i> Apenas parcelas <strong>pendentes e vencidas</strong> serão atualizadas. Parcelas já pagas/recebidas não são alteradas.
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
