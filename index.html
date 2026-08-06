@@ -606,6 +606,29 @@ if (sessionStorage.getItem('ds_auth') === '1') {
   </div>
 </div>
 
+<!-- Modal escopo da edição (recorrentes / parcelados) -->
+<div class="modal-backdrop" id="modal-escopo">
+  <div class="modal" style="width:420px">
+    <div class="modal-title">
+      <span><i class="ti ti-repeat"></i> Aplicar alteração</span>
+    </div>
+    <div id="escopo-desc" style="font-size:13px;color:var(--text2);margin-bottom:14px;padding:10px 12px;background:var(--surface2);border-radius:8px"></div>
+    <div id="escopo-mudancas" style="font-size:12px;color:var(--text2);margin-bottom:14px;padding:10px 12px;background:var(--blue-light);border-radius:8px;line-height:1.7"></div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn primary" onclick="aplicarEscopoEdicao(true)" style="justify-content:flex-start;text-align:left;padding:12px 14px">
+        <i class="ti ti-stack"></i> <span id="escopo-btn-todos">Alterar este e os próximos a vencer</span>
+      </button>
+      <button class="btn" onclick="aplicarEscopoEdicao(false)" style="justify-content:flex-start;text-align:left;padding:12px 14px">
+        <i class="ti ti-file"></i> Alterar somente este lançamento
+      </button>
+      <button class="btn" onclick="cancelarEscopoEdicao()" style="justify-content:center;font-size:12px;color:var(--text3)">Cancelar</button>
+    </div>
+    <div style="margin-top:12px;padding:9px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F;font-size:11px;color:#7B6200">
+      <i class="ti ti-info-circle"></i> Lançamentos já pagos/recebidos nunca são alterados. Data de vencimento e status permanecem individuais.
+    </div>
+  </div>
+</div>
+
 <!-- Modal orçamento -->
 <div class="modal-backdrop" id="modal-orc">
   <div class="modal">
@@ -1094,8 +1117,100 @@ async function salvarLancamento(){
     closeModal('modal-add');showToast(`${nMeses+1} lançamentos recorrentes criados.`);render();return;
   }
   const item={...base,id:editingId||genId(),mes:venc.slice(0,7)};
-  if(editingId)updateItem(editingId,item);else addItem(item);
+  if(editingId){
+    const todos=await getData();
+    const orig=todos.find(x=>x.id===editingId);
+    if(orig&&(orig.grupoRecId||orig.grupoId)){
+      _edicaoPendente={id:editingId,novo:item,orig};
+      abrirEscopoEdicao(orig,item,todos);
+      return;
+    }
+    await updateItem(editingId,item);
+  } else {
+    addItem(item);
+  }
   closeModal('modal-add');showToast(editingId?'Atualizado.':'Salvo.');render();
+}
+
+// === ESCOPO DA EDIÇÃO EM LANÇAMENTOS RECORRENTES / PARCELADOS ===
+let _edicaoPendente=null;
+const SUFIXO_PARCELA=/ \(\d+\/\d+\)$/;
+
+function irmaosDoGrupo(todos,orig,incluirEste){
+  const chave=orig.grupoRecId?'grupoRecId':'grupoId';
+  const valor=orig[chave];
+  if(!valor)return [];
+  return todos.filter(x=>
+    x[chave]===valor &&
+    (incluirEste||x.id!==orig.id) &&
+    !['recebido','pago'].includes(x.status) &&
+    x.venc>=orig.venc
+  );
+}
+
+function diffEdicao(orig,novo){
+  const campos=['tipo','parte','cat','nf','contrato','obs'];
+  const rotulos={tipo:'Tipo',parte:'Cliente/Fornecedor',cat:'Categoria',nf:'NF',contrato:'Contrato',obs:'Observações'};
+  const patch={},labels=[];
+  campos.forEach(c=>{
+    if((novo[c]||'')!==(orig[c]||'')){patch[c]=novo[c]||'';labels.push(rotulos[c]);}
+  });
+  if(Number(novo.valor)!==Number(orig.valor)){patch.valor=novo.valor;labels.push('Valor');}
+  ['desconto','juros','multa'].forEach(c=>{
+    if(numAj(novo[c])!==numAj(orig[c])){patch[c]=numAj(novo[c]);}
+  });
+  const baseOrig=(orig.desc||'').replace(SUFIXO_PARCELA,'');
+  const baseNovo=(novo.desc||'').replace(SUFIXO_PARCELA,'');
+  if(baseOrig!==baseNovo){patch._descBase=baseNovo;labels.push('Descrição');}
+  return {patch,labels};
+}
+
+function abrirEscopoEdicao(orig,novo,todos){
+  const irmaos=irmaosDoGrupo(todos,orig,false);
+  const {labels}=diffEdicao(orig,novo);
+  const tipoGrupo=orig.grupoRecId?'recorrente':'parcelado';
+  document.getElementById('escopo-desc').innerHTML=
+    '<strong>'+(orig.desc||'')+'</strong><br><span style="font-size:12px">Lançamento '+tipoGrupo+
+    ' — existem <strong>'+irmaos.length+'</strong> lançamento(s) em aberto a vencer depois deste.</span>';
+  document.getElementById('escopo-mudancas').innerHTML=
+    labels.length?('Campos alterados: <strong>'+labels.join(', ')+'</strong>')
+                 :'Nenhum campo de conteúdo foi alterado — só vencimento e/ou status.';
+  document.getElementById('escopo-btn-todos').textContent=
+    'Alterar este e os próximos '+irmaos.length+' a vencer';
+  document.getElementById('modal-escopo').classList.add('open');
+}
+
+function cancelarEscopoEdicao(){
+  document.getElementById('modal-escopo').classList.remove('open');
+  _edicaoPendente=null;
+}
+
+async function aplicarEscopoEdicao(propagar){
+  if(!_edicaoPendente)return;
+  const {id,novo,orig}=_edicaoPendente;
+  document.getElementById('modal-escopo').classList.remove('open');
+  await updateItem(id,novo);
+  let n=0;
+  if(propagar){
+    const todos=await getData();
+    const irmaos=irmaosDoGrupo(todos,orig,false);
+    const {patch}=diffEdicao(orig,novo);
+    const temDesc=Object.prototype.hasOwnProperty.call(patch,'_descBase');
+    const baseNovo=patch._descBase;
+    delete patch._descBase;
+    for(const irmao of irmaos){
+      const up={...patch};
+      if(temDesc){
+        const sufixo=(irmao.desc||'').match(SUFIXO_PARCELA);
+        up.desc=baseNovo+(sufixo?sufixo[0]:'');
+      }
+      if(Object.keys(up).length){await updateItem(irmao.id,up);n++;}
+    }
+  }
+  closeModal('modal-add');
+  _edicaoPendente=null;
+  showToast(propagar?('Atualizado — '+n+' lançamento(s) futuro(s) também.'):'Atualizado somente este.');
+  render();
 }
 
 async function confirmarDelete(id){
@@ -1208,11 +1323,12 @@ async function exportarTabelaPDF(tipo){
   const realizado=items.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
   const pendente=items.filter(x=>['pendente','vencido','parcial'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
   const rows=items.sort((a,b)=>a.venc.localeCompare(b.venc)).map(r=>{
+    const recTag=(r.recorrencia&&r.totalRecorrencias)?'<span style="background:#EEF3FA;color:#1A4A7A;border:1px solid #B8CCE4;border-radius:8px;padding:1px 5px;font-size:9px;margin-left:4px">'+r.recorrencia+'/'+r.totalRecorrencias+'</span>':'';
     const ncTag=r.nao_contabiliza?'<span style="background:#FFF8E1;color:#7B6200;border:1px solid #FFD54F;border-radius:8px;padding:1px 5px;font-size:9px;margin-left:4px">↩ mês ant.</span>':'';
     const statusCor={'recebido':'#2A5C45','pago':'#2A5C45','pendente':'#1A4A7A','vencido':'#C4411A','parcial':'#7B6200'}[r.status]||'#666';
     const statusBg={'recebido':'#E8F2ED','pago':'#E8F2ED','pendente':'#EEF3FA','vencido':'#FDECEA','parcial':'#FFF8E1'}[r.status]||'#eee';
     return`<tr>
-      <td>${r.desc}${ncTag}${r.obs?`<br><small style="color:#888">${r.obs}</small>`:''}</td>
+      <td>${r.desc}${recTag}${ncTag}${r.obs?`<br><small style="color:#888">${r.obs}</small>`:''}</td>
       <td>${r.parte||'—'}</td>
       <td>${r.nf||'—'}</td>
       <td>${r.contrato||'—'}</td>
@@ -2067,12 +2183,13 @@ function renderTabela(tipo, allItems){
           </div></td></tr>`;
         }
         const pagoParcial=r.pago_parcial||0;
+        const recBadge=(r.recorrencia&&r.totalRecorrencias)?`<span title="Lançamento recorrente" style="display:inline-block;margin-left:6px;padding:1px 6px;background:var(--blue-light);color:var(--blue);border-radius:10px;font-size:10px;font-weight:600;font-family:var(--mono)">${r.recorrencia}/${r.totalRecorrencias}</span>`:'';
         const ncBadge=r.nao_contabiliza?`<span title="Não contabilizado no caixa deste mês" style="display:inline-block;margin-left:6px;padding:1px 6px;background:#FFF8E1;color:#7B6200;border:1px solid #FFD54F;border-radius:10px;font-size:10px;font-weight:600">↩ mês ant.</span>`:'';
         const dataPagDisplay=r.data_pagamento?`<br><small style="color:var(--accent);font-size:10px">✓ pago ${fmtDate(r.data_pagamento)}</small>`:'';
         return`<tr>
           <td><input type="checkbox" class="chk-item" id="chk-${r.id}" onclick="toggleSelecionado('${r.id}',this.checked)" style="cursor:pointer"></td>
           <td></td>
-          <td>${r.desc}${ncBadge}${r.obs?`<br><small style="color:var(--text3)">${r.obs}</small>`:''}</td>
+          <td>${r.desc}${recBadge}${ncBadge}${r.obs?`<br><small style="color:var(--text3)">${r.obs}</small>`:''}</td>
           <td>${r.nf?`<span class="tag-nf">${r.nf}</span>`:'—'}</td>
           <td>${r.contrato?`<span class="tag-contrato">${r.contrato}</span>`:'—'}</td>
           <td style="color:var(--text2)">${r.parte||'—'}</td>
