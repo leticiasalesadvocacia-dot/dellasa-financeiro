@@ -209,7 +209,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <button class="nav-item" onclick="showPage('orcamentos')" id="nav-orcamentos"><i class="ti ti-file-dollar"></i><span class="nav-label"> Orçamentos</span></button>
       <button class="nav-item" onclick="showPage('emprestimos')" id="nav-emprestimos"><i class="ti ti-building-bank"></i><span class="nav-label"> Empréstimos</span></button>
       <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i><span class="nav-label"> Proj. Pausados</span></button>
-      <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i><span class="nav-label"> Relatórios IA</span></button>
+      <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i><span class="nav-label"> Relatórios</span></button>
       <button class="nav-item" onclick="showPage('historico')" id="nav-historico"><i class="ti ti-history"></i><span class="nav-label"> Histórico</span></button>
     </nav>
     <div class="sidebar-bottom">
@@ -2922,85 +2922,6 @@ function buildResumoMes(all,mes){
   return{tRec,tDep,recebido,pago,pagoParcial,pendRec,pendPag,resultado:tRec-tDep,margem:tRec>0?((tRec-tDep)/tRec*100):0,recCats:bycat(rec),depCats:bycat(dep),nRec:rec.length,nDep:dep.length,vencidos:rec.filter(x=>x.status==='vencido'),items};
 }
 
-async function gerarAnaliseIA(mesPrincipal,mesPrevisao1,mesPrevisao2){
-  const all=await getData();
-  const r0=buildResumoMes(all,mesPrincipal);
-  const r1=mesPrevisao1?buildResumoMes(all,mesPrevisao1):null;
-  const r2=mesPrevisao2?buildResumoMes(all,mesPrevisao2):null;
-  const metas=await getMetas();
-
-  // Orçamentos
-  const orcs=await getOrcamentos();
-  const orcsEnviados=orcs.filter(o=>o.status==='enviado');
-  const orcsAprovados=orcs.filter(o=>o.status==='aprovado');
-  const orcsPerdidos=orcs.filter(o=>o.status==='perdido');
-  const vlPipeline=orcsEnviados.reduce((s,o)=>s+o.valor,0);
-  const vlAprovado=orcsAprovados.reduce((s,o)=>s+o.valor,0);
-  const taxaConv=orcs.length>0?(orcsAprovados.length/(orcsAprovados.length+orcsPerdidos.length)*100)||0:0;
-  const topOrcamentos=orcsEnviados.sort((a,b)=>b.valor-a.valor).slice(0,5)
-    .map(o=>`${o.cliente}: R$${o.valor.toFixed(0)} (${o.parcelas}x, prob.${o.probabilidade||'?'}%)`).join(' | ');
-
-  // Análise de cenários por orçamento
-  const cenariosOrc=orcsEnviados.slice(0,5).map(o=>{
-    const recMes=o.valor/o.parcelas;
-    const saldoMes=r0.resultado+recMes;
-    return `${o.cliente} (R$${o.valor.toFixed(0)}, ${o.parcelas}x de R$${recMes.toFixed(0)}/mês): resultado mensal passaria para R$${saldoMes.toFixed(0)}`;
-  }).join(' | ');
-
-  // Empréstimos
-  const emps=await getEmprestimos();
-  const empsAtivos=emps.filter(e=>e.status!=='quitado');
-  const totalDevedorEmps=empsAtivos.reduce((s,e)=>s+((e.parcelas_abertas||0)*(e.valor_parcela||0)),0);
-  const totalParcelasEmps=empsAtivos.reduce((s,e)=>s+(e.valor_parcela||0),0);
-  const empsVencidos=empsAtivos.filter(e=>e.status==='vencido'||e.status==='parcial');
-  const vlEmpsVencidos=empsVencidos.reduce((s,e)=>s+(e.status==='parcial'?((e.valor_parcela||0)-(e.valor_parcial||0)):e.valor_parcela||0),0);
-  const resumoEmps=empsAtivos.map(e=>`${e.nome} (${e.instituicao}): ${e.parcelas_abertas}x de R$${(e.valor_parcela||0).toFixed(0)}, saldo R$${((e.parcelas_abertas||0)*(e.valor_parcela||0)).toFixed(0)}, status: ${e.status}`).join(' | ');
-
-  const prompt=`Você é analista financeiro sênior da DellaSá Estruturas Ltda, escritório de engenharia estrutural em Balneário Camboriú/SC. Analise os dados completos abaixo e gere relatório executivo detalhado em português brasileiro.
-
-## MÊS ANALISADO: ${getMesLabel(mesPrincipal)}
-- Faturamento total: R$ ${r0.tRec.toFixed(2)} | Recebido: R$ ${r0.recebido.toFixed(2)} | Pendente: R$ ${r0.pendRec.toFixed(2)}
-- Despesas totais: R$ ${r0.tDep.toFixed(2)} | Pago: R$ ${(r0.pago+r0.pagoParcial).toFixed(2)} | Pendente: R$ ${r0.pendPag.toFixed(2)}
-- Resultado: R$ ${r0.resultado.toFixed(2)} | Margem: ${r0.margem.toFixed(1)}%
-- Meta: R$ ${(metas[mesPrincipal]||0).toFixed(2)} | Títulos vencidos: ${r0.vencidos.length}
-- Top receitas por categoria: ${r0.recCats.slice(0,5).map(([c,v])=>`${c}: R$${v.toFixed(0)}`).join(', ')||'nenhum'}
-- Top despesas por categoria: ${r0.depCats.slice(0,5).map(([c,v])=>`${c}: R$${v.toFixed(0)}`).join(', ')||'nenhum'}
-
-${r1?'## PREVISÃO '+getMesLabel(mesPrevisao1)+' | Receitas: R$'+r1.tRec.toFixed(2)+' | Despesas: R$'+r1.tDep.toFixed(2)+' | Resultado: R$'+r1.resultado.toFixed(2)+' | Meta: R$'+(metas[mesPrevisao1]||0).toFixed(2):''}
-${r2?'## PREVISÃO '+getMesLabel(mesPrevisao2)+' | Receitas: R$'+r2.tRec.toFixed(2)+' | Despesas: R$'+r2.tDep.toFixed(2)+' | Resultado: R$'+r2.resultado.toFixed(2)+' | Meta: R$'+(metas[mesPrevisao2]||0).toFixed(2):''}
-
-## PIPELINE DE ORÇAMENTOS
-- Total enviados: ${orcsEnviados.length} orçamentos | Valor total em aberto: R$ ${vlPipeline.toFixed(2)}
-- Aprovados (histórico): ${orcsAprovados.length} | Valor: R$ ${vlAprovado.toFixed(2)}
-- Taxa de conversão: ${taxaConv.toFixed(1)}%
-- Top orçamentos em aberto: ${topOrcamentos||'nenhum'}
-
-## SIMULAÇÃO DE FECHAMENTO DE ORÇAMENTOS
-(Se fechar cada orçamento abaixo, o impacto mensal seria:)
-${cenariosOrc||'Nenhum orçamento em aberto'}
-
-## EMPRÉSTIMOS ATIVOS
-- Total de empréstimos ativos: ${empsAtivos.length}
-- Compromisso mensal total: R$ ${totalParcelasEmps.toFixed(2)}
-- Saldo devedor total: R$ ${totalDevedorEmps.toFixed(2)}
-- Em atraso: ${empsVencidos.length} empréstimo(s) | R$ ${vlEmpsVencidos.toFixed(2)}
-${resumoEmps}
-
-Gere APENAS HTML com estas seções (use só <h3>, <p>, <ul>, <li>, <strong>):
-<h3>📊 Resumo Executivo</h3> [panorama geral: resultado, meta, caixa]
-<h3>✅ Pontos Positivos</h3> [2-3 pontos concretos dos dados]
-<h3>⚠️ Pontos de Atenção</h3> [inadimplência, despesas, empréstimos em atraso, meta]
-<h3>💼 Análise do Pipeline</h3> [quais orçamentos fechar primeiro, melhor opção de parcelamento para a empresa, impacto no fluxo de caixa]
-<h3>🏦 Situação dos Empréstimos</h3> [análise da dívida, comprometimento da receita, alertas de atraso, sugestões]
-<h3>🔭 Previsão dos Próximos Meses</h3> [só se houver dados de previsão]
-<h3>💡 Sugestões Estratégicas</h3> [3-5 ações práticas e específicas para o escritório]
-Use números reais. Não invente dados. Seja direto e objetivo. Responda APENAS o HTML.`;
-
-  const resp=await fetch('https://dellasa-financeiro.vercel.app/api/analisar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});
-  const data=await resp.json();
-  return data.text||'Erro ao gerar análise.';
-}
-
 function renderRelatorios(){
   const opts=getMesesOpts();
   const d=new Date(currentMes+'-01');
@@ -3033,16 +2954,15 @@ function renderRelatorios(){
           </div>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
-          <button class="btn primary" onclick="gerarRelatorio()"><i class="ti ti-sparkles"></i> Gerar relatório com IA</button>
+          <button class="btn primary" onclick="gerarRelatorio()"><i class="ti ti-chart-histogram"></i> Gerar relatório</button>
           <button class="btn export" onclick="exportarRelPDF()" id="btn-export-pdf" style="display:none"><i class="ti ti-file-type-pdf"></i> Exportar PDF</button>
-          <span style="font-size:11px;color:var(--text3)">A IA analisa seus dados reais e gera insights personalizados</span>
+          <span style="font-size:11px;color:var(--text3)">Gráficos e resumo consolidado a partir dos seus lançamentos</span>
         </div>
       </div>
     </div>
     <div id="rel-loading" style="display:none;text-align:center;padding:48px;color:var(--text3)">
-      <div style="font-size:36px;margin-bottom:12px">✨</div>
-      <div style="font-size:14px;font-weight:500;color:var(--text2)">Analisando seus dados financeiros...</div>
-      <div style="font-size:12px;color:var(--text3);margin-top:6px">A IA está lendo receitas, despesas e gerando insights personalizados para o DellaSá</div>
+      <div style="font-size:36px;margin-bottom:12px">📊</div>
+      <div style="font-size:14px;font-weight:500;color:var(--text2)">Montando o relatório...</div>
     </div>
     <div id="rel-output" style="display:none">
       <div id="rel-graficos" style="margin-bottom:20px"></div>
@@ -3089,22 +3009,59 @@ async function gerarRelatorio(){
     const c4=document.getElementById('rel-dcat');
     if(c4&&r0.depCats.length){if(c4._ch)c4._ch.destroy();c4._ch=new Chart(c4,{type:'doughnut',data:{labels:r0.depCats.map(x=>x[0]),datasets:[{data:r0.depCats.map(x=>x[1]),backgroundColor:colors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'right',labels:{font:{size:9},boxWidth:8,padding:5}}}}});}
   },50);
-  try{
-    const analise=await gerarAnaliseIA(mes,prev1,prev2);
-    document.getElementById('rel-loading').style.display='none';
-    document.getElementById('rel-output').style.display='block';
-    document.getElementById('rel-titulo').textContent=`Análise IA — ${getMesLabel(mes)}${prev1?' + previsão '+getMesLabel(prev1):''}${prev2?' + '+getMesLabel(prev2):''}`;
-    document.getElementById('rel-analise').innerHTML=analise;
-    document.querySelectorAll('#rel-analise h3').forEach(h=>{h.style.cssText='font-size:14px;font-weight:600;color:var(--text);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)';});
-    document.querySelectorAll('#rel-analise ul').forEach(ul=>{ul.style.cssText='padding-left:18px;display:flex;flex-direction:column;gap:5px;margin-bottom:8px';});
-    document.querySelectorAll('#rel-analise li').forEach(li=>{li.style.cssText='color:var(--text2);line-height:1.6';});
-    document.querySelectorAll('#rel-analise p').forEach(p=>{p.style.cssText='color:var(--text2);line-height:1.8;margin-bottom:8px';});
-  }catch(e){
-    document.getElementById('rel-loading').style.display='none';
-    document.getElementById('rel-output').style.display='block';
-    console.error('Erro relatório IA:', e);
-    document.getElementById('rel-analise').innerHTML=`<p style="color:var(--accent2)">⚠️ Erro ao gerar análise.<br><small style="color:var(--text3)">${e.message||JSON.stringify(e)}</small></p>`;
+  const metas=await getMetas();
+  const resumo=montarResumoLocal(r0,mes,metas,[prev1,prev2].filter(Boolean).map(m=>({mes:m,r:buildResumoMes(all,m)})));
+  document.getElementById('rel-loading').style.display='none';
+  document.getElementById('rel-output').style.display='block';
+  document.getElementById('rel-titulo').textContent='Relatório — '+getMesLabel(mes)+(prev1?' + previsão '+getMesLabel(prev1):'')+(prev2?' + '+getMesLabel(prev2):'');
+  document.getElementById('rel-analise').innerHTML=resumo;
+  document.querySelectorAll('#rel-analise h3').forEach(h=>{h.style.cssText='font-size:14px;font-weight:600;color:var(--text);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)';});
+  document.querySelectorAll('#rel-analise ul').forEach(ul=>{ul.style.cssText='padding-left:18px;display:flex;flex-direction:column;gap:5px;margin-bottom:8px';});
+  document.querySelectorAll('#rel-analise li').forEach(li=>{li.style.cssText='color:var(--text2);line-height:1.6';});
+  document.querySelectorAll('#rel-analise p').forEach(p=>{p.style.cssText='color:var(--text2);line-height:1.8;margin-bottom:8px';});
+}
+
+function montarResumoLocal(r0,mes,metas,previsoes){
+  const meta=metas[mes]||0;
+  const pctMeta=meta>0?(r0.tRec/meta*100):0;
+  const li=(t)=>'<li>'+t+'</li>';
+  let h='<h3>Resumo do mês — '+getMesLabel(mes)+'</h3><ul>';
+  h+=li('Faturamento previsto: <strong>'+fmt(r0.tRec)+'</strong> em '+r0.nRec+' títulos — já recebido '+fmt(r0.recebido)+', pendente '+fmt(r0.pendRec));
+  h+=li('Despesas previstas: <strong>'+fmt(r0.tDep)+'</strong> em '+r0.nDep+' títulos — já pago '+fmt(r0.pago+r0.pagoParcial)+', pendente '+fmt(r0.pendPag));
+  h+=li('Resultado do mês: <strong>'+fmt(r0.resultado)+'</strong> (margem de '+r0.margem.toFixed(1)+'%)');
+  if(meta>0)h+=li('Meta de faturamento: '+fmt(meta)+' — atingido '+pctMeta.toFixed(1)+'% ('+(r0.tRec>=meta?'meta batida':'faltam '+fmt(meta-r0.tRec))+')');
+  h+='</ul>';
+
+  h+='<h3>Pontos de atenção</h3><ul>';
+  let temAlerta=false;
+  if(r0.vencidos.length){temAlerta=true;h+=li('<strong>'+r0.vencidos.length+' título(s) a receber vencido(s)</strong>, somando '+fmt(r0.vencidos.reduce((s2,x)=>s2+valEf(x),0)));}
+  if(r0.resultado<0){temAlerta=true;h+=li('<strong>Resultado negativo</strong> — as despesas superam as receitas em '+fmt(Math.abs(r0.resultado)));}
+  if(r0.pendPag>0)h+=li('Ainda restam '+fmt(r0.pendPag)+' em contas a pagar neste mês');
+  if(r0.pendRec>0)h+=li('Ainda restam '+fmt(r0.pendRec)+' a receber neste mês');
+  if(!temAlerta&&r0.pendPag===0&&r0.pendRec===0)h+=li('Nenhum ponto crítico identificado neste mês');
+  h+='</ul>';
+
+  if(r0.recCats.length){
+    h+='<h3>Receitas por categoria</h3><ul>';
+    r0.recCats.slice(0,8).forEach(([c,v])=>{h+=li(c+': <strong>'+fmt(v)+'</strong>'+(r0.tRec>0?' ('+(v/r0.tRec*100).toFixed(1)+'%)':''));});
+    h+='</ul>';
   }
+  if(r0.depCats.length){
+    h+='<h3>Despesas por categoria</h3><ul>';
+    r0.depCats.slice(0,8).forEach(([c,v])=>{h+=li(c+': <strong>'+fmt(v)+'</strong>'+(r0.tDep>0?' ('+(v/r0.tDep*100).toFixed(1)+'%)':''));});
+    h+='</ul>';
+  }
+
+  if(previsoes&&previsoes.length){
+    h+='<h3>Previsão dos próximos meses</h3><ul>';
+    previsoes.forEach(pv=>{
+      h+=li('<strong>'+getMesLabel(pv.mes)+'</strong> — receitas '+fmt(pv.r.tRec)+', despesas '+fmt(pv.r.tDep)+', resultado <strong>'+fmt(pv.r.resultado)+'</strong>');
+    });
+    const somaRes=previsoes.reduce((s2,pv)=>s2+pv.r.resultado,0);
+    h+=li('Resultado acumulado do período previsto: <strong>'+fmt(somaRes)+'</strong>');
+    h+='</ul>';
+  }
+  return h;
 }
 
 function exportarRelPDF(){
