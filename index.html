@@ -3279,6 +3279,7 @@ function renderRelatorios(){
         <div style="display:flex;gap:10px;align-items:center">
           <button class="btn primary" onclick="gerarRelatorio()"><i class="ti ti-chart-histogram"></i> Gerar relatório</button>
           <button class="btn export" onclick="exportarRelPDF()" id="btn-export-pdf" style="display:none"><i class="ti ti-file-type-pdf"></i> Exportar PDF</button>
+          <button class="btn export" onclick="baixarGraficos()" id="btn-export-png" style="display:none"><i class="ti ti-photo-down"></i> Baixar gráficos (PNG)</button>
           <span style="font-size:11px;color:var(--text3)">Gráficos e resumo consolidado a partir dos seus lançamentos</span>
         </div>
       </div>
@@ -3293,6 +3294,7 @@ function renderRelatorios(){
         <div class="table-header">
           <div class="table-title" id="rel-titulo">Relatório</div>
           <button class="btn export" onclick="exportarRelPDF()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-type-pdf"></i> Exportar PDF</button>
+          <button class="btn export" onclick="baixarGraficos()" style="padding:5px 10px;font-size:12px"><i class="ti ti-photo-down"></i> Baixar gráficos</button>
         </div>
         <div id="rel-analise" style="padding:20px 24px;line-height:1.8;font-size:13px"></div>
       </div>
@@ -3387,39 +3389,77 @@ function montarResumoLocal(r0,mes,metas,previsoes){
   return h;
 }
 
+const GRAFICOS_REL=[
+  {id:'rel-rv',  titulo:'Receitas × Despesas por período'},
+  {id:'rel-res', titulo:'Resultado por período'},
+  {id:'rel-rcat',titulo:'Receitas por categoria'},
+  {id:'rel-dcat',titulo:'Despesas por categoria'}
+];
+
+function capturarGraficos(){
+  return GRAFICOS_REL.map(g=>{
+    const cv=document.getElementById(g.id);
+    if(!cv)return null;
+    try{
+      const tmp=document.createElement('canvas');
+      tmp.width=cv.width; tmp.height=cv.height;
+      const ctx=tmp.getContext('2d');
+      ctx.fillStyle='#ffffff';
+      ctx.fillRect(0,0,tmp.width,tmp.height);
+      ctx.drawImage(cv,0,0);
+      return {titulo:g.titulo,img:tmp.toDataURL('image/png'),id:g.id};
+    }catch(e){ console.error('Falha ao capturar '+g.id,e); return null; }
+  }).filter(Boolean);
+}
+
+function baixarGraficos(){
+  const gs=capturarGraficos();
+  if(!gs.length){showToast('Gere o relatório antes de baixar os gráficos.');return;}
+  gs.forEach((g,i)=>{
+    setTimeout(()=>{
+      const a=document.createElement('a');
+      a.href=g.img;
+      a.download='DellaSa_'+g.id.replace('rel-','')+'_'+(currentMes||'')+'.png';
+      document.body.appendChild(a); a.click(); a.remove();
+    }, i*300);
+  });
+  showToast(gs.length+' gráfico(s) baixado(s) em PNG.');
+}
+
 function exportarRelPDF(){
   const titulo=document.getElementById('rel-titulo')?.textContent||'Relatório';
   const analise=document.getElementById('rel-analise')?.innerHTML||'';
+  const graficos=capturarGraficos();
+  const blocoGraficos=graficos.length?
+    '<h3 style="page-break-before:always">Gráficos</h3>'+
+    graficos.map(g=>
+      '<div class="grafico"><div class="grafico-titulo">'+g.titulo+'</div>'+
+      '<img src="'+g.img+'" alt="'+g.titulo+'"></div>'
+    ).join(''):'';
+
   const win=window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${titulo}</title>
-  <style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 24px;color:#1A1814;font-size:13px;line-height:1.7}h1{font-size:20px;color:#2A5C45;border-bottom:2px solid #2A5C45;padding-bottom:8px;margin-bottom:24px}h3{font-size:14px;font-weight:600;margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid #eee}p{color:#444;margin-bottom:8px}ul{padding-left:18px;margin-bottom:12px}li{color:#555;margin-bottom:4px}strong{color:#1A1814}.footer{margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center}</style>
-  </head><body><h1>DellaSá Estruturas — ${titulo}</h1>${analise}<div class="footer">Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')} — Sistema Financeiro DellaSá</div><script>window.onload=()=>window.print()<\/script><!-- Modal Gerenciar Categorias -->
-<div id="modal-cats" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:2000;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:16px;padding:28px;width:100%;max-width:420px;max-height:85vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h3 style="font-size:16px;font-weight:700">Gerenciar Categorias</h3>
-      <button onclick="fecharGerenciarCats()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text3)">×</button>
-    </div>
-    <div style="margin-bottom:16px">
-      <label style="font-size:12px;font-weight:600;color:var(--text2)">Tipo</label>
-      <select id="cats-tipo-sel" onchange="renderGerenciarCats(this.value)" style="width:100%;margin-top:4px;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;box-sizing:border-box">
-        <option value="receber">A Receber</option>
-        <option value="pagar">A Pagar</option>
-      </select>
-    </div>
-    <div id="cats-lista" style="margin-bottom:16px"></div>
-    <div style="display:flex;gap:8px">
-      <input id="cats-nova" type="text" placeholder="Nova categoria..." onkeydown="if(event.key==='Enter')adicionarCat()" style="flex:1;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px">
-      <button class="btn primary" onclick="adicionarCat()"><i class="ti ti-plus"></i> Adicionar</button>
-    </div>
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;text-align:right">
-      <button class="btn" onclick="fecharGerenciarCats()">Fechar</button>
-    </div>
-  </div>
-</div>
-</body></html>`);
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+titulo+'</title>'+
+  '<style>'+
+  'body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 24px;color:#1A1814;font-size:13px;line-height:1.7}'+
+  'h1{font-size:20px;color:#2A5C45;border-bottom:2px solid #2A5C45;padding-bottom:8px;margin-bottom:24px}'+
+  'h3{font-size:14px;font-weight:600;margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid #eee}'+
+  'p{color:#444;margin-bottom:8px}ul{padding-left:18px;margin-bottom:12px}li{color:#555;margin-bottom:4px}'+
+  'strong{color:#1A1814}'+
+  '.grafico{margin:18px 0 26px;page-break-inside:avoid}'+
+  '.grafico-titulo{font-size:12px;font-weight:600;color:#2A5C45;margin-bottom:6px}'+
+  '.grafico img{width:100%;max-width:720px;border:1px solid #eee;border-radius:6px}'+
+  '.footer{margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center}'+
+  '@media print{body{margin:0}}'+
+  '</style></head><body>'+
+  '<h1>DellaSá Estruturas — '+titulo+'</h1>'+
+  analise+
+  blocoGraficos+
+  '<div class="footer">Gerado em '+new Date().toLocaleDateString('pt-BR')+' às '+new Date().toLocaleTimeString('pt-BR')+' — Sistema Financeiro DellaSá</div>'+
+  '</body></html>');
   win.document.close();
+  win.onload=()=>{ setTimeout(()=>win.print(), 400); };
 }
+
 /* ========== FIM RELATÓRIOS ========== */
 
 // Sincroniza o seletor de mês com o mês atual calculado dinamicamente
