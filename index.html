@@ -982,6 +982,19 @@ const valEf=x=>{
   const base=parseFloat(x.valor)||0;
   return Math.round((base-numAj(x.desconto)+numAj(x.juros)+numAj(x.multa))*100)/100;
 };
+// valor efetivamente pago/recebido — inclui o parcial já quitado
+const valRealizado=x=>{
+  if(!x)return 0;
+  if(['recebido','pago'].includes(x.status))return valEf(x);
+  if(x.status==='parcial')return parseFloat(x.pago_parcial)||0;
+  return 0;
+};
+// valor ainda em aberto (desconta o que já foi pago parcialmente)
+const valEmAberto=x=>{
+  if(!x)return 0;
+  if(['recebido','pago'].includes(x.status))return 0;
+  return valEf(x)-(parseFloat(x.pago_parcial)||0);
+};
 const ajusteTag=x=>{
   if(!temAjuste(x))return '';
   const p=[];
@@ -1454,8 +1467,8 @@ async function exportarTabelaPDF(tipo){
   const cor=tipo==='receber'?'#2A5C45':'#C4411A';
   const corLight=tipo==='receber'?'#E8F2ED':'#FDECEA';
   const total=items.reduce((s,x)=>s+valEf(x),0);
-  const realizado=items.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
-  const pendente=items.filter(x=>['pendente','vencido','parcial'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
+  const realizado=items.reduce((s,x)=>s+valRealizado(x),0);
+  const pendente=items.reduce((s,x)=>s+valEmAberto(x),0);
   const rows=items.sort((a,b)=>a.venc.localeCompare(b.venc)).map(r=>{
     const recTag=(r.recorrencia&&r.totalRecorrencias)?'<span style="background:#EEF3FA;color:#1A4A7A;border:1px solid #B8CCE4;border-radius:8px;padding:1px 5px;font-size:9px;margin-left:4px">'+r.recorrencia+'/'+r.totalRecorrencias+'</span>':'';
     const ncTag=r.nao_contabiliza?'<span style="background:#FFF8E1;color:#7B6200;border:1px solid #FFD54F;border-radius:8px;padding:1px 5px;font-size:9px;margin-left:4px">↩ mês ant.</span>':'';
@@ -1858,7 +1871,7 @@ async function render(){
 
 const calcM=items=>({
   total:items.reduce((s,x)=>s+valEf(x),0),
-  recebido:items.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0),
+  recebido:items.reduce((s,x)=>s+valRealizado(x),0),
   pendente:items.filter(x=>x.status==='pendente').reduce((s,x)=>s+valEf(x),0),
   vencido:items.filter(x=>x.status==='vencido').reduce((s,x)=>s+valEf(x),0),
   parcial_pago:items.filter(x=>x.status==='parcial').reduce((s,x)=>s+(x.pago_parcial||0),0),
@@ -2314,8 +2327,8 @@ function renderTabela(tipo, allItems){
   tblSelecionados=new Set();
 
   const totalFilt=filtered.reduce((s,x)=>s+valEf(x),0);
-  const realizadoFilt=filtered.filter(x=>['recebido','pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
-  const pendenteFilt=filtered.filter(x=>['pendente','vencido','parcial'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
+  const realizadoFilt=filtered.reduce((s,x)=>s+valRealizado(x),0);
+  const pendenteFilt=filtered.reduce((s,x)=>s+valEmAberto(x),0);
   const tituloTabela=usandoPeriodo?`${tipo==='receber'?'A Receber':'A Pagar'} — ${tblDe?fmtDate(tblDe):'início'} até ${tblAte?fmtDate(tblAte):'hoje'}`:`${tipo==='receber'?'A Receber':'A Pagar'} — ${getMesLabel(currentMes)}`;
   const temFiltroAtivo=tblSearch||tblStatus!=='todos'||tblDia||usandoPeriodo;
 
@@ -2564,8 +2577,8 @@ async function renderResultado(all,mes){
   const dep=items.filter(x=>x.tipo==='pagar');
   const tRec=rec.reduce((s,x)=>s+valEf(x),0);
   const tDep=dep.reduce((s,x)=>s+valEf(x),0);
-  const recebido=rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+valEf(x),0);
-  const pago=dep.filter(x=>x.status==='pago').reduce((s,x)=>s+valEf(x),0);
+  const recebido=rec.reduce((s,x)=>s+valRealizado(x),0);
+  const pago=dep.reduce((s,x)=>s+valRealizado(x),0);
   const resultado=tRec-tDep;
   const metas=await getMetas();
   const meta=metas[mes]||0;
@@ -3314,11 +3327,11 @@ function buildResumoMes(all,mes){
   const dep=items.filter(x=>x.tipo==='pagar');
   const tRec=rec.reduce((s,x)=>s+valEf(x),0);
   const tDep=dep.reduce((s,x)=>s+valEf(x),0);
-  const recebido=rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+valEf(x),0);
-  const pago=dep.filter(x=>['pago'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
+  const recebido=rec.reduce((s,x)=>s+valRealizado(x),0);
+  const pago=dep.reduce((s,x)=>s+valRealizado(x),0);
   const pagoParcial=dep.filter(x=>x.status==='parcial').reduce((s,x)=>s+(x.pago_parcial||0),0);
-  const pendRec=rec.filter(x=>!['recebido'].includes(x.status)).reduce((s,x)=>s+valEf(x),0);
-  const pendPag=dep.filter(x=>!['pago'].includes(x.status)).reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
+  const pendRec=rec.reduce((s,x)=>s+valEmAberto(x),0);
+  const pendPag=dep.reduce((s,x)=>s+valEmAberto(x),0);
   const bycat=(arr)=>{const m={};arr.forEach(x=>{m[x.cat||'Outros']=(m[x.cat||'Outros']||0)+valEf(x);});return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
   return{tRec,tDep,recebido,pago,pagoParcial,pendRec,pendPag,resultado:tRec-tDep,margem:tRec>0?((tRec-tDep)/tRec*100):0,recCats:bycat(rec),depCats:bycat(dep),nRec:rec.length,nDep:dep.length,vencidos:rec.filter(x=>x.status==='vencido'),items};
 }
