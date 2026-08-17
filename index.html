@@ -367,6 +367,9 @@ if (sessionStorage.getItem('ds_auth') === '1') {
         <input type="checkbox" id="f-parcelar" onchange="toggleParcelar()" /> Parcelar
       </label>
     </div>
+    <div id="aviso-parcelar-edicao" style="display:none;padding:9px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F;font-size:11px;color:#7B6200;margin-bottom:10px">
+      <i class="ti ti-info-circle"></i> Este lançamento será <strong>dividido</strong> nas parcelas abaixo. Ele vira a parcela 1 e as demais são criadas.
+    </div>
     <div id="parcelas-config" style="display:none;">
       <div class="form-row">
         <div class="form-group">
@@ -1063,6 +1066,8 @@ function closeModal(id){document.getElementById(id).classList.remove('open');}
 function toggleParcelar(){
   const checked=document.getElementById('f-parcelar').checked;
   document.getElementById('parcelas-config').style.display=checked?'block':'none';
+  const aviso=document.getElementById('aviso-parcelar-edicao');
+  if(aviso)aviso.style.display=(checked&&editingId)?'block':'none';
   if(checked){
     document.getElementById('f-recorrente').checked=false;
     document.getElementById('recorrente-config').style.display='none';
@@ -1149,6 +1154,10 @@ async function salvarLancamento(){
     juros:parseFloat(document.getElementById('f-juros').value)||0,
     multa:parseFloat(document.getElementById('f-multa').value)||0,
   };
+  if(parcelar&&editingId){
+    await parcelarExistente(base,venc,valor,desc);
+    return;
+  }
   if(parcelar&&!editingId){
     const n=parseInt(document.getElementById('f-nparcelas').value)||3;
     const intervalo=parseInt(document.getElementById('f-intervalo').value)||30;
@@ -1190,6 +1199,71 @@ async function salvarLancamento(){
     addItem(item);
   }
   closeModal('modal-add');showToast(editingId?'Atualizado.':'Salvo.');render();
+}
+
+// === PARCELAR UM LANÇAMENTO JÁ EXISTENTE ===
+async function parcelarExistente(base,venc,valor,desc){
+  const n=parseInt(document.getElementById('f-nparcelas').value)||3;
+  const intervalo=parseInt(document.getElementById('f-intervalo').value)||30;
+  if(n<2){showToast('Informe pelo menos 2 parcelas.');return;}
+
+  const todos=await getData();
+  const orig=todos.find(x=>x.id===editingId);
+  if(!orig){showToast('Lançamento não encontrado.');return;}
+
+  if(['recebido','pago'].includes(orig.status)){
+    showToast('Este lançamento já foi baixado. Não é possível parcelar.');
+    return;
+  }
+
+  const valores=[];
+  for(let i=0;i<n;i++){
+    const el=document.getElementById('pval-'+i);
+    valores.push(el?(parseFloat(el.value)||0):parseFloat((valor/n).toFixed(2)));
+  }
+  const somaParcelas=Math.round(valores.reduce((a,b)=>a+b,0)*100)/100;
+
+  const jaEmGrupo=!!(orig.grupoId||orig.grupoRecId);
+  let msg='Dividir este lançamento em '+n+' parcelas?\n\n'+
+    'Título: '+desc+'\n'+
+    'Valor atual: '+fmt(orig.valor)+'\n'+
+    'Soma das parcelas: '+fmt(somaParcelas)+'\n'+
+    'Primeiro vencimento: '+fmtDate(venc)+' — a cada '+intervalo+' dias\n\n'+
+    'O lançamento original vira a parcela 1/'+n+' e as outras '+(n-1)+' serão criadas.';
+  if(Math.abs(somaParcelas-valor)>0.01){
+    msg+='\n\nATENÇÃO: a soma das parcelas ('+fmt(somaParcelas)+') é diferente do valor informado ('+fmt(valor)+').';
+  }
+  if(jaEmGrupo){
+    msg+='\n\nATENÇÃO: este lançamento já faz parte de um grupo. Ele será desvinculado e passará a integrar um novo parcelamento.';
+  }
+  if(!confirm(msg))return;
+
+  const grupoId=genId();
+  const descBase=desc.replace(SUFIXO_PARCELA,'');
+  const venc1=addDias(venc,0);
+
+  await updateItem(editingId,{
+    ...base,
+    desc:descBase+' (1/'+n+')',
+    valor:valores[0],
+    venc:venc1,
+    mes:venc1.slice(0,7),
+    grupoId,parcela:1,totalParcelas:n,
+    grupoRecId:null,recorrencia:null,totalRecorrencias:null
+  });
+
+  for(let i=1;i<n;i++){
+    const vencP=addDias(venc,i*intervalo);
+    addItem({...base,id:genId(),
+      desc:descBase+' ('+(i+1)+'/'+n+')',
+      valor:valores[i],venc:vencP,mes:vencP.slice(0,7),
+      desconto:0,juros:0,multa:0,
+      grupoId,parcela:i+1,totalParcelas:n,status:'pendente'});
+  }
+
+  closeModal('modal-add');
+  showToast('Lançamento dividido em '+n+' parcelas.');
+  render();
 }
 
 // === ESCOPO DA EDIÇÃO EM LANÇAMENTOS RECORRENTES / PARCELADOS ===
@@ -2754,13 +2828,17 @@ async function renderOrcamentos(){
   const perdidos=orcs.filter(x=>x.status==='perdido');
   const vlAprov=aprovados.reduce((s,x)=>s+x.valor,0);
   const vlPipeline=emAberto.reduce((s,x)=>s+x.valor,0);
+  const vlPerdidos=perdidos.reduce((s,x)=>s+x.valor,0);
+  const vlTotalEnviado=orcs.reduce((s,x)=>s+x.valor,0);
   const vlPonderado=emAberto.reduce((s,x)=>s+x.valor*(x.probabilidade/100),0);
   const txConv=aprovados.length+perdidos.length>0?Math.round(aprovados.length/(aprovados.length+perdidos.length)*100):0;
 
   document.getElementById('content').innerHTML=`
-    <div class="metrics" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+    <div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:20px">
+      <div class="metric-card"><div class="metric-label">Total enviado</div><div class="metric-value">${fmt(vlTotalEnviado)}</div><div class="metric-sub">${orcs.length} orçamento(s) no total</div></div>
       <div class="metric-card"><div class="metric-label">Fechados (total)</div><div class="metric-value green">${fmt(vlAprov)}</div><div class="metric-sub">${aprovados.length} projeto(s)</div></div>
       <div class="metric-card"><div class="metric-label">Pipeline em aberto</div><div class="metric-value blue">${fmt(vlPipeline)}</div><div class="metric-sub">${emAberto.length} orçamento(s)</div></div>
+      <div class="metric-card"><div class="metric-label">Perdidos</div><div class="metric-value red">${fmt(vlPerdidos)}</div><div class="metric-sub">${perdidos.length} orçamento(s)</div></div>
       <div class="metric-card"><div class="metric-label">Taxa de conversão</div><div class="metric-value ${txConv>=50?'green':'red'}">${txConv}%</div><div class="metric-sub">${aprovados.length} de ${aprovados.length+perdidos.length} decididos</div></div>
     </div>
     <div class="table-wrap" style="margin-bottom:20px">
