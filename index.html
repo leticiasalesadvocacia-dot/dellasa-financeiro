@@ -1435,7 +1435,7 @@ async function exportarExcel(){
       const rec=data.filter(x=>x.mes===m&&x.tipo==='receber');
       const pag=data.filter(x=>x.mes===m&&x.tipo==='pagar');
       const tr=rec.reduce((s,x)=>s+valEf(x),0),tp=pag.reduce((s,x)=>s+valEf(x),0);
-      return[getMesLabel(m),tr,tp,tr-tp,rec.filter(x=>x.status==='recebido').reduce((s,x)=>s+valEf(x),0),pag.filter(x=>x.status==='pago').reduce((s,x)=>s+valEf(x),0)];
+      return[getMesLabel(m),tr,tp,tr-tp,rec.reduce((s,x)=>s+valRealizado(x),0),pag.reduce((s,x)=>s+valRealizado(x),0)];
     })
   ];
   const ws2=XLSX.utils.aoa_to_sheet(resumo_data);
@@ -1959,7 +1959,7 @@ async function renderDashboard(all,doMes,recMes,pagMes){
   const saldoInicial=saldos[currentMes]||0;
   const saldoAtual=saldoInicial;
   const despPend=pagMes.filter(x=>!['pago'].includes(x.status));
-  const totalPendente=despPend.reduce((s,x)=>s+(x.status==='parcial'?valEf(x)-(x.pago_parcial||0):valEf(x)),0);
+  const totalPendente=despPend.reduce((s,x)=>s+valEmAberto(x),0);
   const recAberto=rec.pendente+rec.vencido;
   const pagAberto=pag.total-pag.recebido-pag.parcial_pago;
   const nVencRec=recMes.filter(x=>x.status==='vencido').length;
@@ -2740,7 +2740,7 @@ async function salvarParcial(){
   const mesAnterior=document.getElementById('parcial-mes-anterior').checked;
   const dataPag=document.getElementById('parcial-data').value;
   const novoTotal=(item.pago_parcial||0)+v;
-  const novoStatus=novoTotal>=valEf(item)?'pago':'parcial';
+  const novoStatus=novoTotal>=valEf(item)-0.005?(item.tipo==='receber'?'recebido':'pago'):'parcial';
   const update={pago_parcial:novoTotal,status:novoStatus};
   if(mesAnterior)update.nao_contabiliza=true;
   if(dataPag)update.data_pagamento=dataPag;
