@@ -209,6 +209,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <button class="nav-item" onclick="showPage('orcamentos')" id="nav-orcamentos"><i class="ti ti-file-dollar"></i><span class="nav-label"> Orçamentos</span></button>
       <button class="nav-item" onclick="showPage('emprestimos')" id="nav-emprestimos"><i class="ti ti-building-bank"></i><span class="nav-label"> Empréstimos</span></button>
       <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i><span class="nav-label"> Proj. Pausados</span></button>
+      <button class="nav-item" onclick="showPage('comissoes')" id="nav-comissoes"><i class="ti ti-users-group"></i><span class="nav-label"> Comissões</span></button>
       <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i><span class="nav-label"> Relatórios</span></button>
       <button class="nav-item" onclick="showPage('historico')" id="nav-historico"><i class="ti ti-history"></i><span class="nav-label"> Histórico</span></button>
     </nav>
@@ -298,7 +299,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Tipo</label>
-        <select class="form-select" id="f-tipo" onchange="atualizarCategorias(this.value)"><option value="receber">A Receber</option><option value="pagar">A Pagar</option></select>
+        <select class="form-select" id="f-tipo" onchange="atualizarCategorias(this.value);atualizarVisibilidadeComissao()"><option value="receber">A Receber</option><option value="pagar">A Pagar</option></select>
       </div>
       <div class="form-group">
         <label class="form-label" style="display:flex;justify-content:space-between">Categoria <a href="#" onclick="abrirGerenciarCats();return false" style="font-size:11px;color:var(--accent);font-weight:600">+ Gerenciar</a></label>
@@ -366,6 +367,20 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;font-weight:400;letter-spacing:0;text-transform:none;color:var(--text2);">
         <input type="checkbox" id="f-parcelar" onchange="toggleParcelar()" /> Parcelar
       </label>
+    </div>
+    <div class="section-divider" id="div-comissao">Comissão da equipe</div>
+    <div id="box-comissao" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+      <label class="checkbox-label" style="cursor:pointer">
+        <input type="checkbox" id="f-comissionavel" onchange="toggleComissao()" /> Este recebimento gera comissão
+      </label>
+      <label class="checkbox-label" id="lbl-indicacao" style="display:none;cursor:pointer;padding-left:22px">
+        <input type="checkbox" id="f-tem-indicacao" /> Teve indicação (desconta a indicação antes da comissão)
+      </label>
+      <div id="box-imposto-pct" style="display:none;padding-left:22px">
+        <label class="form-label" style="margin-bottom:4px">Alíquota do imposto (%)</label>
+        <input class="form-input" id="f-imposto-pct" type="number" step="0.01" placeholder="Deixe vazio para usar o padrão" style="max-width:280px" />
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Vazio = usa a alíquota padrão dos Parâmetros.</div>
+      </div>
     </div>
     <div id="aviso-parcelar-edicao" style="display:none;padding:9px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F;font-size:11px;color:#7B6200;margin-bottom:10px">
       <i class="ti ti-info-circle"></i> Este lançamento será <strong>dividido</strong> nas parcelas abaixo. Ele vira a parcela 1 e as demais são criadas.
@@ -609,6 +624,47 @@ if (sessionStorage.getItem('ds_auth') === '1') {
   </div>
 </div>
 
+<!-- Modal parâmetros de comissão -->
+<div class="modal-backdrop" id="modal-com-config">
+  <div class="modal" style="width:480px">
+    <div class="modal-title">
+      <span><i class="ti ti-settings"></i> Parâmetros das comissões</span>
+      <button class="modal-close" onclick="closeModal('modal-com-config')">&times;</button>
+    </div>
+
+    <div class="section-divider">Descontos aplicados antes da comissão</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Imposto (%)</label>
+        <input class="form-input" id="cfg-imposto" type="number" step="0.01" placeholder="9,40" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Indicação (%)</label>
+        <input class="form-input" id="cfg-indicacao" type="number" step="0.01" placeholder="5,00" />
+      </div>
+    </div>
+    <button class="btn" onclick="salvarParamsComissao()" style="width:100%;margin-bottom:6px"><i class="ti ti-check"></i> Salvar percentuais</button>
+
+    <div class="section-divider">Quem recebe comissão</div>
+    <div id="cfg-benef-lista" style="margin-bottom:12px"></div>
+    <div class="form-row" style="grid-template-columns:2fr 1fr auto;align-items:flex-end;gap:8px">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Nome</label>
+        <input class="form-input" id="cfg-novo-nome" placeholder="Ex: Ellen" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">%</label>
+        <input class="form-input" id="cfg-novo-pct" type="number" step="0.01" placeholder="2,50" />
+      </div>
+      <button class="btn primary" onclick="adicionarBenef()" style="height:38px"><i class="ti ti-plus"></i></button>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-com-config')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal edição em lote -->
 <div class="modal-backdrop" id="modal-lote">
   <div class="modal" style="width:520px">
@@ -660,6 +716,39 @@ if (sessionStorage.getItem('ds_auth') === '1') {
         <strong>Observações</strong>
       </label>
       <input class="form-input" id="lote-obs" placeholder="Substitui as observações atuais" disabled />
+    </div>
+
+    <div id="lote-box-comissao">
+      <div class="section-divider">Comissão da equipe</div>
+      <div class="form-row">
+        <div class="form-group" style="margin-bottom:0">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
+            <input type="checkbox" id="lote-chk-comissionavel" onchange="document.getElementById('lote-comissionavel').disabled=!this.checked">
+            <strong>Gera comissão</strong>
+          </label>
+          <select class="form-select" id="lote-comissionavel" disabled>
+            <option value="sim">Sim — entra no cálculo</option>
+            <option value="nao">Não — fica de fora</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
+            <input type="checkbox" id="lote-chk-indicacao" onchange="document.getElementById('lote-indicacao').disabled=!this.checked">
+            <strong>Teve indicação</strong>
+          </label>
+          <select class="form-select" id="lote-indicacao" disabled>
+            <option value="sim">Sim — desconta indicação</option>
+            <option value="nao">Não</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:10px;margin-bottom:0">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
+          <input type="checkbox" id="lote-chk-imposto" onchange="document.getElementById('lote-imposto').disabled=!this.checked">
+          <strong>Alíquota do imposto (%)</strong>
+        </label>
+        <input class="form-input" id="lote-imposto" type="number" step="0.01" placeholder="Vazio = volta para o padrão" disabled />
+      </div>
     </div>
 
     <div class="modal-actions">
@@ -883,7 +972,11 @@ function localToDb(item) {
     nao_contabiliza: item.nao_contabiliza||false,
     data_pagamento: item.data_pagamento||null,
     desconto: numAj(item.desconto), juros: numAj(item.juros), multa: numAj(item.multa),
-    valor_efetivo: valEf(item)
+    valor_efetivo: valEf(item),
+    comissionavel: item.comissionavel||false,
+    tem_indicacao: item.tem_indicacao||false,
+    comissao_base_paga: numAj(item.comissao_base_paga),
+    imposto_pct: (item.imposto_pct===''||item.imposto_pct===null||item.imposto_pct===undefined)?null:numAj(item.imposto_pct)
   };
 }
 
@@ -900,7 +993,11 @@ function dbToLocal(row) {
     nao_contabiliza: row.nao_contabiliza||false,
     data_pagamento: row.data_pagamento||null,
     desconto: parseFloat(row.desconto)||0, juros: parseFloat(row.juros)||0,
-    multa: parseFloat(row.multa)||0
+    multa: parseFloat(row.multa)||0,
+    comissionavel: row.comissionavel||false,
+    tem_indicacao: row.tem_indicacao||false,
+    comissao_base_paga: parseFloat(row.comissao_base_paga)||0,
+    imposto_pct: (row.imposto_pct===null||row.imposto_pct===undefined)?null:parseFloat(row.imposto_pct)
   };
 }
 
@@ -945,6 +1042,32 @@ async function getSaldos() {
 async function saveSaldo(mes, val) {
   await db('upsert', 'saldos', {mes, valor: val});
 }
+
+// Comissões — parâmetros e beneficiários
+const COM_PADRAO={imposto:0.094,indicacao:0.05};
+
+async function getComConfig(){
+  try{
+    const rows=await db('select','comissoes_config');
+    const m={...COM_PADRAO};
+    if(Array.isArray(rows))rows.forEach(r=>{m[r.chave]=parseFloat(r.valor);});
+    return m;
+  }catch(e){ console.error('comissoes_config',e); return {...COM_PADRAO}; }
+}
+async function saveComConfig(chave,valor){
+  await db('upsert','comissoes_config',{chave,valor});
+}
+async function getComBenef(){
+  try{
+    const rows=await db('select','comissoes_beneficiarios');
+    if(!Array.isArray(rows))return [];
+    return rows.filter(r=>r.ativo!==false)
+      .map(r=>({id:r.id,nome:r.nome,percentual:parseFloat(r.percentual)||0}))
+      .sort((a,b)=>a.nome.localeCompare(b.nome));
+  }catch(e){ console.error('comissoes_beneficiarios',e); return []; }
+}
+async function saveComBenef(b){ await db('upsert','comissoes_beneficiarios',b); }
+async function delComBenef(id){ await db('delete','comissoes_beneficiarios',{id}); }
 
 // Orçamentos
 async function getOrcs() { return getOrcsData(); }
@@ -1019,7 +1142,7 @@ function showPage(p){
   currentPage=p;tblStatus='todos';tblSearch='';tblDe='';tblAte='';tblDia='';tblModoData='mes';
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('nav-'+p)?.classList.add('active');
-  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios com IA',historico:'Histórico'};
+  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',comissoes:'Comissões da Equipe',historico:'Histórico'};
   document.getElementById('page-title').textContent=titles[p]||p;
   document.getElementById('btn-add').style.display=(p==='dashboard'||p==='receber'||p==='pagar'||p==='orcamentos'||p==='pausados')?'':'none';
   if(p==='orcamentos') document.getElementById('btn-add').onclick=()=>openOrcamento();
@@ -1038,6 +1161,10 @@ function openAdd(){
   atualizarCategorias(tipoInicial);
   ['f-desc','f-valor','f-parte','f-nf','f-contrato','f-obs','f-desconto','f-juros','f-multa'].forEach(id=>document.getElementById(id).value='');
   atualizarValorEfetivo();
+  document.getElementById('f-comissionavel').checked=false;
+  document.getElementById('f-tem-indicacao').checked=false;
+  document.getElementById('f-imposto-pct').value='';
+  toggleComissao(); atualizarVisibilidadeComissao();
   document.getElementById('f-venc').value=currentMes+'-15';
   document.getElementById('f-status').value='pendente';
   document.getElementById('f-parcelar').checked=false;
@@ -1066,6 +1193,10 @@ async function openEdit(id){
   document.getElementById('f-desconto').value=item.desconto||'';
   document.getElementById('f-juros').value=item.juros||'';
   document.getElementById('f-multa').value=item.multa||'';
+  document.getElementById('f-comissionavel').checked=!!item.comissionavel;
+  document.getElementById('f-tem-indicacao').checked=!!item.tem_indicacao;
+  document.getElementById('f-imposto-pct').value=(item.imposto_pct===null||item.imposto_pct===undefined)?'':(item.imposto_pct*100).toFixed(2).replace(/\.?0+$/,'');
+  toggleComissao(); atualizarVisibilidadeComissao();
   atualizarValorEfetivo();
   document.getElementById('f-parcelar').checked=false;
   document.getElementById('parcelas-config').style.display='none';
@@ -1075,6 +1206,28 @@ async function openEdit(id){
 }
 
 function closeModal(id){document.getElementById(id).classList.remove('open');}
+
+function toggleComissao(){
+  const c=document.getElementById('f-comissionavel');
+  const l=document.getElementById('lbl-indicacao');
+  const b=document.getElementById('box-imposto-pct');
+  const on=!!(c&&c.checked);
+  if(l)l.style.display=on?'flex':'none';
+  if(b)b.style.display=on?'block':'none';
+}
+
+function atualizarVisibilidadeComissao(){
+  const tipo=document.getElementById('f-tipo')?.value;
+  const mostrar=(tipo==='receber');
+  const d=document.getElementById('div-comissao'), b=document.getElementById('box-comissao');
+  if(d)d.style.display=mostrar?'':'none';
+  if(b)b.style.display=mostrar?'flex':'none';
+  if(!mostrar){
+    const c=document.getElementById('f-comissionavel');
+    if(c)c.checked=false;
+    toggleComissao();
+  }
+}
 
 function toggleParcelar(){
   const checked=document.getElementById('f-parcelar').checked;
@@ -1163,6 +1316,12 @@ async function salvarLancamento(){
     nf:document.getElementById('f-nf').value.trim(),
     contrato:document.getElementById('f-contrato').value.trim(),
     obs:document.getElementById('f-obs').value.trim(),
+    comissionavel:document.getElementById('f-comissionavel').checked,
+    tem_indicacao:document.getElementById('f-tem-indicacao').checked,
+    imposto_pct:(function(){
+      const v=document.getElementById('f-imposto-pct').value;
+      return (v===''||v===null)?null:(parseFloat(v)||0)/100;
+    })(),
     desconto:parseFloat(document.getElementById('f-desconto').value)||0,
     juros:parseFloat(document.getElementById('f-juros').value)||0,
     multa:parseFloat(document.getElementById('f-multa').value)||0,
@@ -1862,6 +2021,7 @@ async function render(){
     else if(currentPage==='orcamentos')await renderOrcamentos();
     else if(currentPage==='emprestimos')await renderEmprestimos();
     else if(currentPage==='pausados')await renderPausados();
+    else if(currentPage==='comissoes')await renderComissoes(all);
     else if(currentPage==='relatorios')renderRelatorios();
     else if(currentPage==='historico')renderHistorico(all);
   }catch(e){
@@ -2230,10 +2390,13 @@ function abrirEdicaoLote(){
     '<option value="'+realizado+'">'+(tipo==='receber'?'Recebido':'Pago')+'</option>'+
     '<option value="vencido">Vencido</option>';
 
-  ['cat','parte','contrato','status','obs'].forEach(c=>{
-    document.getElementById('lote-chk-'+c).checked=false;
-    document.getElementById('lote-'+c).disabled=true;
+  ['cat','parte','contrato','status','obs','comissionavel','indicacao','imposto'].forEach(c=>{
+    const chk=document.getElementById('lote-chk-'+c);
+    const campo=document.getElementById('lote-'+c);
+    if(chk)chk.checked=false;
+    if(campo)campo.disabled=true;
   });
+  document.getElementById('lote-box-comissao').style.display=(tipo==='receber')?'':'none';
   ['parte','contrato','obs'].forEach(c=>{document.getElementById('lote-'+c).value='';});
 
   document.getElementById('modal-lote').classList.add('open');
@@ -2255,6 +2418,20 @@ async function aplicarEdicaoLote(){
   pega('contrato','Contrato');
   pega('status','Status');
   pega('obs','Observações');
+
+  if(document.getElementById('lote-chk-comissionavel').checked){
+    patch.comissionavel=document.getElementById('lote-comissionavel').value==='sim';
+    labels.push('Gera comissão');
+  }
+  if(document.getElementById('lote-chk-indicacao').checked){
+    patch.tem_indicacao=document.getElementById('lote-indicacao').value==='sim';
+    labels.push('Teve indicação');
+  }
+  if(document.getElementById('lote-chk-imposto').checked){
+    const v=document.getElementById('lote-imposto').value;
+    patch.imposto_pct=(v===''||v===null)?null:(parseFloat(v)||0)/100;
+    labels.push('Alíquota do imposto');
+  }
 
   if(!labels.length){showToast('Marque ao menos um campo para alterar.');return;}
 
@@ -3335,6 +3512,274 @@ function buildResumoMes(all,mes){
   const bycat=(arr)=>{const m={};arr.forEach(x=>{m[x.cat||'Outros']=(m[x.cat||'Outros']||0)+valEf(x);});return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
   return{tRec,tDep,recebido,pago,pagoParcial,pendRec,pendPag,resultado:tRec-tDep,margem:tRec>0?((tRec-tDep)/tRec*100):0,recCats:bycat(rec),depCats:bycat(dep),nRec:rec.length,nDep:dep.length,vencidos:rec.filter(x=>x.status==='vencido'),items};
 }
+
+/* ========== COMISSÕES ========== */
+
+// mês de referência do recebimento: usa a data de pagamento quando existir
+function mesRecebimento(x){
+  return ((x.data_pagamento||x.venc)||'').slice(0,7);
+}
+
+// calcula a comissão de um recebimento
+// alíquota que vale para um lançamento: a dele, ou o padrão geral
+function aliqImposto(item,cfg){
+  const v=item?item.imposto_pct:null;
+  return (v===null||v===undefined||isNaN(v))?(cfg.imposto||0):v;
+}
+
+function calcComissao(item,cfg,benef){
+  const bruto=valRealizado(item);
+  const aliq=aliqImposto(item,cfg);
+  const imposto=Math.round(bruto*aliq*100)/100;
+  const indicacao=item.tem_indicacao?Math.round((bruto-imposto)*(cfg.indicacao||0)*100)/100:0;
+  const baseTotal=Math.round((bruto-imposto-indicacao)*100)/100;
+  // desconta o que já foi comissionado deste lançamento (recebimentos parciais anteriores)
+  const jaPaga=Math.round((parseFloat(item.comissao_base_paga)||0)*100)/100;
+  const base=Math.round(Math.max(0,baseTotal-jaPaga)*100)/100;
+  const partes={};
+  benef.forEach(b=>{partes[b.id]=Math.round(base*(b.percentual||0)*100)/100;});
+  return {bruto,imposto,indicacao,base,baseTotal,jaPaga,partes,aliq,proprio:(item.imposto_pct!==null&&item.imposto_pct!==undefined)};
+}
+
+async function renderComissoes(all){
+  const cfg=await getComConfig();
+  const benef=await getComBenef();
+  const mes=currentMes;
+
+  const elegiveis=(all||[]).filter(x=>
+    x.tipo==='receber' && x.comissionavel && mesRecebimento(x)===mes &&
+    ['recebido','parcial'].includes(x.status)
+  ).sort((a,b)=>(a.venc||'').localeCompare(b.venc||''));
+
+  const calcs=elegiveis.map(x=>({item:x,c:calcComissao(x,cfg,benef)}))
+    .filter(r=>r.c.base>0.004);
+  const totBruto=calcs.reduce((s2,r)=>s2+r.c.bruto,0);
+  const totImposto=calcs.reduce((s2,r)=>s2+r.c.imposto,0);
+  const totIndic=calcs.reduce((s2,r)=>s2+r.c.indicacao,0);
+  const totBase=calcs.reduce((s2,r)=>s2+r.c.base,0);
+  const totPorBenef={};
+  benef.forEach(b=>{totPorBenef[b.id]=calcs.reduce((s2,r)=>s2+(r.c.partes[b.id]||0),0);});
+  const totComissoes=benef.reduce((s2,b)=>s2+totPorBenef[b.id],0);
+
+  // pendentes de marcação: recebidos no mês que ainda não foram marcados
+  const naoMarcados=(all||[]).filter(x=>
+    x.tipo==='receber' && !x.comissionavel && mesRecebimento(x)===mes &&
+    ['recebido','parcial'].includes(x.status)
+  ).length;
+
+  const cardsBenef=benef.map(b=>
+    '<div class="metric-card"><div class="metric-label">'+b.nome+' ('+(b.percentual*100).toFixed(2).replace('.',',')+'%)</div>'+
+    '<div class="metric-value blue">'+fmt(totPorBenef[b.id])+'</div>'+
+    '<div class="metric-sub">'+calcs.length+' recebimento(s)</div></div>'
+  ).join('');
+
+  const colsBenef=benef.map(b=>'<th class="td-right">'+b.nome+'</th>').join('');
+
+  const linhas=calcs.map(r=>{
+    const x=r.item,c=r.c;
+    return '<tr>'+
+      '<td>'+x.desc+(x.tem_indicacao?'<span style="margin-left:6px;padding:1px 6px;background:#FFF3E0;color:#9C5700;border-radius:10px;font-size:10px;font-weight:600">indicação</span>':'')+
+        (x.status==='parcial'?'<span style="margin-left:6px;padding:1px 6px;background:var(--blue-light);color:var(--blue);border-radius:10px;font-size:10px;font-weight:600">parcial</span>':'')+'</td>'+
+      '<td style="color:var(--text2)">'+(x.parte||'—')+'</td>'+
+      '<td class="td-mono" style="color:var(--text2)">'+fmtDate(x.data_pagamento||x.venc)+'</td>'+
+      '<td class="td-right td-mono">'+fmt(c.bruto)+'</td>'+
+      '<td class="td-right"><div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">'+
+        '<input type="number" step="0.01" value="'+(c.aliq*100).toFixed(2)+'" '+
+        'onchange="alterarAliquota(\''+x.id+'\',this.value)" '+
+        'style="width:62px;padding:3px 5px;border:1px solid '+(c.proprio?'var(--blue)':'var(--border)')+';border-radius:5px;font-family:var(--mono);font-size:11px;text-align:right" '+
+        'title="'+(c.proprio?'Alíquota própria deste recebimento':'Usando a alíquota padrão')+'">'+
+        '<span style="font-size:11px;color:var(--text3)">%</span></div>'+
+        '<div class="td-mono" style="font-size:11px;color:var(--accent2);margin-top:2px">-'+fmt(c.imposto)+'</div></td>'+
+      '<td class="td-right td-mono" style="color:var(--accent2)">'+(c.indicacao?'-'+fmt(c.indicacao):'—')+'</td>'+
+      '<td class="td-right td-mono" style="font-weight:500">'+fmt(c.base)+
+        (c.jaPaga>0?'<div style="font-size:9px;color:var(--text3);white-space:nowrap">total '+fmt(c.baseTotal)+' &middot; já pago '+fmt(c.jaPaga)+'</div>':'')+'</td>'+
+      benef.map(b=>'<td class="td-right td-mono" style="color:var(--blue)">'+fmt(c.partes[b.id]||0)+'</td>').join('')+
+      '</tr>';
+  }).join('');
+
+  const rodape='<tr style="background:var(--surface2);font-weight:600">'+
+    '<td colspan="3">TOTAL — '+getMesLabel(mes)+'</td>'+
+    '<td class="td-right td-mono">'+fmt(totBruto)+'</td>'+
+    '<td class="td-right td-mono" style="color:var(--accent2)">-'+fmt(totImposto)+'</td>'+
+    '<td class="td-right td-mono" style="color:var(--accent2)">'+(totIndic?'-'+fmt(totIndic):'—')+'</td>'+
+    '<td class="td-right td-mono">'+fmt(totBase)+'</td>'+
+    benef.map(b=>'<td class="td-right td-mono" style="color:var(--blue)">'+fmt(totPorBenef[b.id])+'</td>').join('')+
+    '</tr>';
+
+  document.getElementById('content').innerHTML=
+  '<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:20px">'+
+    '<div class="metric-card"><div class="metric-label">Base de cálculo</div><div class="metric-value">'+fmt(totBase)+'</div><div class="metric-sub">recebido menos imposto e indicação</div></div>'+
+    cardsBenef+
+    '<div class="metric-card"><div class="metric-label">Total em comissões</div><div class="metric-value red">'+fmt(totComissoes)+'</div><div class="metric-sub">a lançar em A Pagar</div></div>'+
+  '</div>'+
+
+  (naoMarcados>0?
+    '<div style="padding:11px 14px;background:#FFF8E1;border:1px solid #FFD54F;border-radius:8px;font-size:12px;color:#7B6200;margin-bottom:16px">'+
+    '<i class="ti ti-info-circle"></i> Existem <strong>'+naoMarcados+'</strong> recebimento(s) neste mês que não estão marcados como comissionáveis. '+
+    'Marque-os em Contas a Receber (individualmente ou pela edição em lote) para que entrem neste cálculo.</div>':'')+
+
+  '<div class="table-wrap" style="margin-bottom:20px">'+
+    '<div class="table-header">'+
+      '<div class="table-title">Recebimentos comissionáveis — '+getMesLabel(mes)+'</div>'+
+      '<div style="display:flex;gap:8px">'+
+        '<button class="btn" onclick="abrirConfigComissoes()" style="padding:5px 10px;font-size:12px"><i class="ti ti-settings"></i> Parâmetros</button>'+
+        '<button class="btn primary" onclick="gerarLancamentosComissao()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-plus"></i> Gerar lançamentos em A Pagar</button>'+
+      '</div>'+
+    '</div>'+
+    (calcs.length?
+      ('<table><thead><tr><th>Descrição</th><th>Cliente</th><th>Recebido em</th>'+
+       '<th class="td-right">Valor recebido</th><th class="td-right">Imposto (%)</th><th class="td-right">Indicação</th>'+
+       '<th class="td-right">Base</th>'+colsBenef+'</tr></thead><tbody>'+linhas+rodape+'</tbody></table>')
+      :'<div class="empty"><i class="ti ti-inbox"></i><p>Nenhum recebimento comissionável neste mês.</p></div>')+
+  '</div>'+
+
+  '<div style="padding:12px 16px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.8">'+
+    '<strong>Como o cálculo é feito:</strong><br>'+
+    'Base = valor recebido &minus; imposto &minus; indicação ('+((cfg.indicacao||0)*100).toFixed(0)+'%, só quando marcada).<br>'+
+    'A comissão de cada pessoa é o percentual dela aplicado sobre essa base.<br>'+
+    'A alíquota do imposto pode ser alterada linha a linha na tabela acima — a borda azul indica que o recebimento tem alíquota própria. '+
+    'Os demais usam o padrão de '+((cfg.imposto||0)*100).toFixed(2).replace('.',',')+'%, ajustável em Parâmetros.'+
+  '</div>';
+}
+
+async function alterarAliquota(id,valor){
+  const v=(valor===''||valor===null)?null:(parseFloat(valor)||0)/100;
+  await updateItem(id,{imposto_pct:v});
+  showToast(v===null?'Voltou para a alíquota padrão.':'Alíquota alterada para '+(v*100).toFixed(2).replace('.',',')+'%.');
+  render();
+}
+
+async function gerarLancamentosComissao(){
+  const all=await getData();
+  const cfg=await getComConfig();
+  const benef=await getComBenef();
+  const mes=currentMes;
+
+  if(!benef.length){showToast('Cadastre os beneficiários em Parâmetros.');return;}
+
+  const elegiveis=all.filter(x=>
+    x.tipo==='receber' && x.comissionavel && mesRecebimento(x)===mes &&
+    ['recebido','parcial'].includes(x.status));
+
+  if(!elegiveis.length){showToast('Nenhum recebimento comissionável neste mês.');return;}
+
+  const totais={};
+  benef.forEach(b=>{totais[b.id]=0;});
+  let nCom=0;
+  elegiveis.forEach(x=>{
+    const c=calcComissao(x,cfg,benef);
+    if(c.base<=0.004)return;
+    nCom++;
+    benef.forEach(b=>{totais[b.id]+=c.partes[b.id]||0;});
+  });
+  if(!nCom){showToast('Todos os recebimentos deste mês já foram comissionados.');return;}
+
+  const aLancar=benef.filter(b=>Math.round(totais[b.id]*100)/100>0);
+  if(!aLancar.length){showToast('Os valores calculados ficaram zerados.');return;}
+
+  const jaExiste=all.filter(x=>
+    x.tipo==='pagar' && x.cat==='Comissões' && x.mes===mes &&
+    aLancar.some(b=>(x.desc||'').includes('Comissão '+b.nome)));
+
+  let msg='Gerar '+aLancar.length+' lançamento(s) em A Pagar?\n\nReferência: '+getMesLabel(mes)+'\n\n'+
+    aLancar.map(b=>'• '+b.nome+': '+fmt(Math.round(totais[b.id]*100)/100)).join('\n')+
+    '\n\nTotal: '+fmt(aLancar.reduce((s2,b)=>s2+Math.round(totais[b.id]*100)/100,0));
+  if(jaExiste.length){
+    msg+='\n\nATENÇÃO: já existem '+jaExiste.length+' lançamento(s) de comissão para este mês. '+
+         'Continuar vai criar lançamentos duplicados.';
+  }
+  if(!confirm(msg))return;
+
+  const cats=getCats('pagar');
+  if(!cats.includes('Comissões')){ saveCats('pagar',[...cats,'Comissões']); }
+
+  // marca em cada recebimento quanto da base já foi comissionada,
+  // para que um pagamento parcial não seja comissionado duas vezes
+  for(const x of elegiveis){
+    const c=calcComissao(x,cfg,benef);
+    if(c.base>0){
+      await updateItem(x.id,{comissao_base_paga:Math.round((c.jaPaga+c.base)*100)/100});
+    }
+  }
+
+  const venc=ultimoDiaMes(mes);
+  let n=0;
+  for(const b of aLancar){
+    await addItem({
+      id:genId(), tipo:'pagar',
+      desc:'Comissão '+b.nome+' — '+getMesLabel(mes),
+      valor:Math.round(totais[b.id]*100)/100,
+      venc, mes:venc.slice(0,7),
+      parte:b.nome, cat:'Comissões', status:'pendente',
+      obs:'Gerado automaticamente pela tela de Comissões ('+nCom+' recebimento(s)).',
+      desconto:0,juros:0,multa:0
+    });
+    n++;
+  }
+  showToast(n+' lançamento(s) de comissão criado(s) em A Pagar.');
+  render();
+}
+
+// vencimento da comissão: último dia do mês de referência
+function ultimoDiaMes(mes){
+  const [y,m]=mes.split('-').map(Number);
+  const dia=new Date(y,m,0).getDate();
+  return mes+'-'+String(dia).padStart(2,'0');
+}
+
+async function abrirConfigComissoes(){
+  const cfg=await getComConfig();
+  const benef=await getComBenef();
+  document.getElementById('cfg-imposto').value=((cfg.imposto||0)*100).toFixed(2);
+  document.getElementById('cfg-indicacao').value=((cfg.indicacao||0)*100).toFixed(2);
+  renderListaBenef(benef);
+  document.getElementById('modal-com-config').classList.add('open');
+}
+
+function renderListaBenef(benef){
+  const box=document.getElementById('cfg-benef-lista');
+  if(!benef.length){
+    box.innerHTML='<div style="font-size:12px;color:var(--text3);padding:8px 0">Nenhum beneficiário cadastrado.</div>';
+    return;
+  }
+  box.innerHTML=benef.map(b=>
+    '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">'+
+      '<span style="flex:1;font-size:13px">'+b.nome+'</span>'+
+      '<span class="td-mono" style="font-size:12px;color:var(--blue);min-width:60px;text-align:right">'+(b.percentual*100).toFixed(2).replace('.',',')+'%</span>'+
+      '<button onclick="removerBenef(\''+b.id+'\',\''+b.nome.replace(/'/g,"")+'\')" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:14px" title="Remover"><i class="ti ti-trash"></i></button>'+
+    '</div>').join('');
+}
+
+async function salvarParamsComissao(){
+  const imp=parseFloat(document.getElementById('cfg-imposto').value);
+  const ind=parseFloat(document.getElementById('cfg-indicacao').value);
+  if(isNaN(imp)||isNaN(ind)){showToast('Informe os dois percentuais.');return;}
+  await saveComConfig('imposto',imp/100);
+  await saveComConfig('indicacao',ind/100);
+  showToast('Parâmetros salvos.');
+  render();
+}
+
+async function adicionarBenef(){
+  const nome=(document.getElementById('cfg-novo-nome').value||'').trim();
+  const pct=parseFloat(document.getElementById('cfg-novo-pct').value);
+  if(!nome){showToast('Informe o nome.');return;}
+  if(isNaN(pct)){showToast('Informe o percentual.');return;}
+  await saveComBenef({id:genId(),nome,percentual:pct/100,ativo:true});
+  document.getElementById('cfg-novo-nome').value='';
+  document.getElementById('cfg-novo-pct').value='';
+  renderListaBenef(await getComBenef());
+  showToast(nome+' adicionado(a).');
+}
+
+async function removerBenef(id,nome){
+  if(!confirm('Remover '+nome+' da lista de comissões?\n\nOs lançamentos já criados não são afetados.'))return;
+  await delComBenef(id);
+  renderListaBenef(await getComBenef());
+  showToast(nome+' removido(a).');
+}
+
+/* ========== FIM COMISSÕES ========== */
 
 function renderRelatorios(){
   const opts=getMesesOpts();
