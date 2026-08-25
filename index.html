@@ -995,7 +995,8 @@ function localToDb(item) {
     comissionavel: item.comissionavel||false,
     tem_indicacao: item.tem_indicacao||false,
     comissao_base_paga: numAj(item.comissao_base_paga),
-    imposto_pct: (item.imposto_pct===''||item.imposto_pct===null||item.imposto_pct===undefined)?null:numAj(item.imposto_pct)
+    imposto_pct: (item.imposto_pct===''||item.imposto_pct===null||item.imposto_pct===undefined)?null:numAj(item.imposto_pct),
+    comissao_ref: item.comissao_ref||null
   };
 }
 
@@ -1016,7 +1017,8 @@ function dbToLocal(row) {
     comissionavel: row.comissionavel||false,
     tem_indicacao: row.tem_indicacao||false,
     comissao_base_paga: parseFloat(row.comissao_base_paga)||0,
-    imposto_pct: (row.imposto_pct===null||row.imposto_pct===undefined)?null:parseFloat(row.imposto_pct)
+    imposto_pct: (row.imposto_pct===null||row.imposto_pct===undefined)?null:parseFloat(row.imposto_pct),
+    comissao_ref: row.comissao_ref||null
   };
 }
 
@@ -3652,6 +3654,22 @@ async function renderComissoes(all){
     benef.map(b=>'<td class="td-right td-mono">'+fmt(totPrevBenef[b.id])+'</td>').join('')+
     '</tr>';
 
+  // situação de cada pessoa em Contas a Pagar
+  const sync=totaisComissaoMes(all||[],cfg,benef,mes);
+  const situacao=benef.map(b=>{
+    const alvo=sync.tot[b.id].total;
+    const lanc=acharLancComissao(all||[],mes,b);
+    let estado='nao_lancado', atual=0;
+    if(lanc){
+      atual=parseFloat(lanc.valor)||0;
+      if(lanc.status==='pago')estado='pago';
+      else if(Math.abs(atual-alvo)<0.005)estado='ok';
+      else estado='desatualizado';
+    }
+    return {b,alvo,atual,estado,lanc};
+  });
+  const precisaSync=situacao.some(r=>r.estado==='nao_lancado'||r.estado==='desatualizado');
+
   const cardsBenef=benef.map(b=>
     '<div class="metric-card"><div class="metric-label">'+b.nome+' ('+(b.percentual*100).toFixed(2).replace('.',',')+'%)</div>'+
     '<div class="metric-value blue">'+fmt(totMesBenef[b.id])+'</div>'+
@@ -3721,15 +3739,40 @@ async function renderComissoes(all){
     '<i class="ti ti-info-circle"></i> Existem <strong>'+naoMarcados+'</strong> recebimento(s) neste mês que não estão marcados como comissionáveis. '+
     'Marque-os em Contas a Receber (individualmente ou pela edição em lote) para que entrem neste cálculo.</div>':'')+
 
+  (benef.length?
+  '<div class="table-wrap" style="margin-bottom:16px">'+
+    '<div class="table-header" style="flex-wrap:wrap;gap:8px">'+
+      '<div class="table-title">Situação em Contas a Pagar — '+getMesLabel(mes)+'</div>'+
+      '<button class="btn '+(precisaSync?'primary':'')+'" onclick="gerarLancamentosComissao()"'+(precisaSync?'':' disabled')+' style="padding:5px 10px;font-size:12px'+(precisaSync?'':';opacity:.55;cursor:default')+'">'+
+        '<i class="ti ti-refresh"></i> '+(precisaSync?'Lançar / atualizar em A Pagar':'Tudo sincronizado')+'</button>'+
+    '</div>'+
+    '<table><thead><tr><th>Pessoa</th><th class="td-right">Total do mês</th>'+
+      '<th class="td-right">Já recebido</th><th class="td-right">Previsto</th>'+
+      '<th class="td-right">Em A Pagar</th><th>Situação</th></tr></thead><tbody>'+
+    situacao.map(r=>{
+      const cor=r.estado==='ok'?'var(--accent)':(r.estado==='pago'?'var(--accent)':(r.estado==='desatualizado'?'#9C5700':'var(--text3)'));
+      const txt=r.estado==='ok'?'em dia':(r.estado==='pago'?'já pago — não será alterado':(r.estado==='desatualizado'?'valor diferente — precisa atualizar':'ainda não lançado'));
+      return '<tr>'+
+        '<td style="font-weight:500">'+r.b.nome+'</td>'+
+        '<td class="td-right td-mono" style="font-weight:600">'+fmt(r.alvo)+'</td>'+
+        '<td class="td-right td-mono" style="color:var(--accent)">'+fmt(sync.tot[r.b.id].recebido)+'</td>'+
+        '<td class="td-right td-mono" style="color:var(--text3)">'+(sync.tot[r.b.id].previsto>0.004?fmt(sync.tot[r.b.id].previsto):'—')+'</td>'+
+        '<td class="td-right td-mono">'+(r.lanc?fmt(r.atual):'—')+'</td>'+
+        '<td><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;color:'+cor+';background:var(--surface2)">'+txt+'</span></td>'+
+      '</tr>';
+    }).join('')+
+    '</tbody></table>'+
+    '<div style="padding:10px 16px;font-size:11px;color:var(--text3);border-top:1px solid var(--border)">'+
+      'O lançamento em A Pagar reflete o total do mês, incluindo o que ainda está previsto. Conforme os recebimentos entram, clique em atualizar para acertar o valor — o sistema altera o lançamento existente em vez de criar outro.'+
+    '</div>'+
+  '</div>':'')+
+
   '<div class="table-wrap" style="margin-bottom:16px">'+
     '<div class="table-header" style="flex-wrap:wrap;gap:8px">'+
       '<div class="table-title">Recebimentos comissionáveis — '+getMesLabel(mes)+'</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
         '<button class="btn" onclick="abrirConfigComissoes()" style="padding:5px 10px;font-size:12px"><i class="ti ti-settings"></i> Parâmetros</button>'+
         '<button class="btn export" onclick="exportarComissoesPDF()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-type-pdf"></i> PDF geral</button>'+
-        (totComissoesAberto>0.004?
-          '<button class="btn primary" onclick="gerarLancamentosComissao()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-plus"></i> Gerar lançamentos em A Pagar</button>'
-          :'<button class="btn" disabled style="padding:5px 10px;font-size:12px;opacity:.55;cursor:default"><i class="ti ti-check"></i> Comissões do mês já lançadas</button>')+
       '</div>'+
     '</div>'+
     (calcs.length?
@@ -3894,6 +3937,57 @@ async function exportarComissoesPDF(){
   win.onload=()=>{setTimeout(()=>win.print(),400);};
 }
 
+// total de comissão do mês por pessoa: já recebido + ainda a receber
+function totaisComissaoMes(all,cfg,benef,mes){
+  const itens=all.filter(x=>
+    x.tipo==='receber' && x.comissionavel && mesRecebimento(x)===mes &&
+    ['recebido','parcial','pendente','vencido'].includes(x.status));
+
+  const tot={},det={recebido:0,previsto:0,nRec:0,nPrev:0};
+  benef.forEach(b=>{tot[b.id]={total:0,recebido:0,previsto:0};});
+
+  const somar=(x,bruto,ehRecebido)=>{
+    if(bruto<=0.004)return;
+    const c=calcComissao(x,cfg,benef,bruto);
+    if(ehRecebido){det.recebido+=c.baseTotal;det.nRec++;}else{det.previsto+=c.baseTotal;det.nPrev++;}
+    benef.forEach(b=>{
+      const v=Math.round(c.baseTotal*(b.percentual||0)*100)/100;
+      tot[b.id].total+=v;
+      if(ehRecebido)tot[b.id].recebido+=v; else tot[b.id].previsto+=v;
+    });
+  };
+
+  itens.forEach(x=>{
+    const jaPago=parseFloat(x.pago_parcial)||0;
+    if(x.status==='recebido'){
+      somar(x,valEf(x),true);
+    } else if(x.status==='parcial'){
+      // parte já recebida conta como realizado; o que falta continua como previsto
+      somar(x,jaPago,true);
+      somar(x,Math.max(0,valEf(x)-jaPago),false);
+    } else {
+      somar(x,Math.max(0,valEf(x)-jaPago),false);
+    }
+  });
+  benef.forEach(b=>{
+    tot[b.id].total=Math.round(tot[b.id].total*100)/100;
+    tot[b.id].recebido=Math.round(tot[b.id].recebido*100)/100;
+    tot[b.id].previsto=Math.round(tot[b.id].previsto*100)/100;
+  });
+  return {tot,det};
+}
+
+// acha o lançamento de comissão já existente para (mês, pessoa)
+function acharLancComissao(all,mes,b){
+  const ref='com|'+mes+'|'+b.id;
+  let achado=all.find(x=>x.comissao_ref===ref);
+  if(achado)return achado;
+  // lançamentos criados antes da referência existir
+  return all.find(x=>
+    x.tipo==='pagar' && x.cat==='Comissões' && x.mes===mes &&
+    (x.desc||'').indexOf('Comissão '+b.nome)===0);
+}
+
 async function alterarAliquota(id,valor){
   const v=(valor===''||valor===null)?null:(parseFloat(valor)||0)/100;
   await updateItem(id,{imposto_pct:v});
@@ -3909,72 +4003,86 @@ async function gerarLancamentosComissao(){
 
   if(!benef.length){showToast('Cadastre os beneficiários em Parâmetros.');return;}
 
-  const elegiveis=all.filter(x=>
-    x.tipo==='receber' && x.comissionavel && mesRecebimento(x)===mes &&
-    ['recebido','parcial'].includes(x.status));
+  const {tot,det}=totaisComissaoMes(all,cfg,benef,mes);
+  const comValor=benef.filter(b=>tot[b.id].total>0.004);
+  if(!comValor.length){showToast('Nenhuma comissão a lançar neste mês.');return;}
 
-  if(!elegiveis.length){showToast('Nenhum recebimento comissionável neste mês.');return;}
-
-  const totais={};
-  benef.forEach(b=>{totais[b.id]=0;});
-  let nCom=0;
-  elegiveis.forEach(x=>{
-    const c=calcComissao(x,cfg,benef);
-    if(c.base<=0.004)return;
-    nCom++;
-    benef.forEach(b=>{totais[b.id]+=c.partes[b.id]||0;});
-  });
-  if(!nCom){showToast('Todos os recebimentos deste mês já foram comissionados.');return;}
-
-  const aLancar=benef.filter(b=>Math.round(totais[b.id]*100)/100>0);
-  if(!aLancar.length){showToast('Os valores calculados ficaram zerados.');return;}
-
-  const jaExiste=all.filter(x=>
-    x.tipo==='pagar' && x.cat==='Comissões' && x.mes===mes &&
-    aLancar.some(b=>(x.desc||'').includes('Comissão '+b.nome)));
-
-  let msg='Gerar '+aLancar.length+' lançamento(s) em A Pagar?\n\nReferência: '+getMesLabel(mes)+'\n\n'+
-    aLancar.map(b=>'• '+b.nome+': '+fmt(Math.round(totais[b.id]*100)/100)).join('\n')+
-    '\n\nTotal: '+fmt(aLancar.reduce((s2,b)=>s2+Math.round(totais[b.id]*100)/100,0));
-  if(jaExiste.length){
-    msg+='\n\nATENÇÃO: já existem '+jaExiste.length+' lançamento(s) de comissão para este mês. '+
-         'Continuar vai criar lançamentos duplicados.';
+  // separa o que é criação do que é atualização
+  const criar=[],atualizar=[],bloqueados=[],semMudanca=[];
+  for(const b of comValor){
+    const existente=acharLancComissao(all,mes,b);
+    const valorNovo=tot[b.id].total;
+    if(!existente){ criar.push({b,valor:valorNovo}); continue; }
+    if(['pago'].includes(existente.status)){ bloqueados.push({b,existente,valor:valorNovo}); continue; }
+    if(Math.abs((parseFloat(existente.valor)||0)-valorNovo)<0.005){ semMudanca.push({b,existente}); continue; }
+    atualizar.push({b,existente,valor:valorNovo,antes:parseFloat(existente.valor)||0});
   }
+
+  if(!criar.length&&!atualizar.length){
+    let m='Nada a fazer — os lançamentos de '+getMesLabel(mes)+' já estão em dia.';
+    if(bloqueados.length)m+='\n\n'+bloqueados.length+' lançamento(s) já estão pagos e não foram alterados.';
+    showToast(m,6000);
+    return;
+  }
+
+  let msg='Lançamentos de comissão — '+getMesLabel(mes)+'\n\n';
+  if(criar.length){
+    msg+='CRIAR:\n'+criar.map(r=>'• '+r.b.nome+': '+fmt(r.valor)).join('\n')+'\n\n';
+  }
+  if(atualizar.length){
+    msg+='ATUALIZAR:\n'+atualizar.map(r=>'• '+r.b.nome+': '+fmt(r.antes)+' → '+fmt(r.valor)).join('\n')+'\n\n';
+  }
+  if(semMudanca.length){
+    msg+=semMudanca.length+' já está(ão) com o valor correto.\n\n';
+  }
+  if(bloqueados.length){
+    msg+='ATENÇÃO: '+bloqueados.map(r=>r.b.nome).join(', ')+' — lançamento já pago, não será alterado.\n\n';
+  }
+  msg+='Composição: '+fmt(det.recebido)+' de base já recebida ('+det.nRec+')';
+  if(det.nPrev)msg+=' + '+fmt(det.previsto)+' previsto ('+det.nPrev+')';
+  msg+='.';
+
   if(!confirm(msg))return;
 
   const cats=getCats('pagar');
   if(!cats.includes('Comissões')){ saveCats('pagar',[...cats,'Comissões']); }
 
-  // marca em cada recebimento quanto da base já foi comissionada,
-  // para que um pagamento parcial não seja comissionado duas vezes
-  for(const x of elegiveis){
-    const c=calcComissao(x,cfg,benef);
-    if(c.base>0){
-      await updateItem(x.id,{comissao_base_paga:Math.round((c.jaPaga+c.base)*100)/100});
-    }
-  }
-
   const venc=ultimoDiaMes(mes);
-  let n=0;
+  let nC=0,nA=0;
   try{
-  for(const b of aLancar){
-    await addItem({
-      id:genId(), tipo:'pagar',
-      desc:'Comissão '+b.nome+' — '+getMesLabel(mes),
-      valor:Math.round(totais[b.id]*100)/100,
-      venc, mes:venc.slice(0,7),
-      parte:b.nome, cat:'Comissões', status:'pendente',
-      obs:'Gerado automaticamente pela tela de Comissões ('+nCom+' recebimento(s)).',
-      desconto:0,juros:0,multa:0
-    });
-    n++;
-  }
+    for(const r of criar){
+      await addItem({
+        id:genId(), tipo:'pagar',
+        desc:'Comissão '+r.b.nome+' — '+getMesLabel(mes),
+        valor:r.valor,
+        venc, mes:venc.slice(0,7),
+        parte:r.b.nome, cat:'Comissões', status:'pendente',
+        obs:'Comissões de '+getMesLabel(mes)+'. Recebido: '+fmt(tot[r.b.id].recebido)+
+            (tot[r.b.id].previsto>0.004?' | Previsto: '+fmt(tot[r.b.id].previsto):'')+'.',
+        comissao_ref:'com|'+mes+'|'+r.b.id,
+        desconto:0,juros:0,multa:0
+      });
+      nC++;
+    }
+    for(const r of atualizar){
+      await updateItem(r.existente.id,{
+        valor:r.valor,
+        obs:'Comissões de '+getMesLabel(mes)+'. Recebido: '+fmt(tot[r.b.id].recebido)+
+            (tot[r.b.id].previsto>0.004?' | Previsto: '+fmt(tot[r.b.id].previsto):'')+'.',
+        comissao_ref:'com|'+mes+'|'+r.b.id
+      });
+      nA++;
+    }
   }catch(e){
-    showToast('Falha ao criar os lançamentos: '+(e.message||e),9000);
+    showToast('Falha ao gravar: '+(e.message||e),9000);
     render();
     return;
   }
-  showToast(n+' lançamento(s) de comissão criado(s) em A Pagar.');
+
+  const partes=[];
+  if(nC)partes.push(nC+' criado(s)');
+  if(nA)partes.push(nA+' atualizado(s)');
+  showToast('Comissões em A Pagar: '+partes.join(' e ')+'.');
   render();
 }
 
