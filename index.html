@@ -3551,17 +3551,32 @@ async function renderComissoes(all){
     ['recebido','parcial'].includes(x.status)
   ).sort((a,b)=>(a.venc||'').localeCompare(b.venc||''));
 
-  const calcs=elegiveis.map(x=>({item:x,c:calcComissao(x,cfg,benef)}))
-    .filter(r=>r.c.base>0.004);
+  // nada é escondido: o que já virou A Pagar continua na lista, marcado como lançado
+  const calcs=elegiveis.map(x=>{
+    const c=calcComissao(x,cfg,benef);
+    const lancado=c.jaPaga>0.004;
+    const pendente=c.base>0.004;
+    let situacao='pendente';
+    if(lancado&&pendente)situacao='parcial';
+    else if(lancado)situacao='lancado';
+    return {item:x,c,situacao};
+  });
+
+  // totais do mês inteiro (base cheia) e do que ainda falta lançar
   const totBruto=calcs.reduce((s2,r)=>s2+r.c.bruto,0);
   const totImposto=calcs.reduce((s2,r)=>s2+r.c.imposto,0);
   const totIndic=calcs.reduce((s2,r)=>s2+r.c.indicacao,0);
-  const totBase=calcs.reduce((s2,r)=>s2+r.c.base,0);
-  const totPorBenef={};
-  benef.forEach(b=>{totPorBenef[b.id]=calcs.reduce((s2,r)=>s2+(r.c.partes[b.id]||0),0);});
-  const totComissoes=benef.reduce((s2,b)=>s2+totPorBenef[b.id],0);
+  const totBaseMes=calcs.reduce((s2,r)=>s2+r.c.baseTotal,0);
+  const totBaseAberto=calcs.reduce((s2,r)=>s2+r.c.base,0);
 
-  // pendentes de marcação: recebidos no mês que ainda não foram marcados
+  const totMesBenef={},totAbertoBenef={};
+  benef.forEach(b=>{
+    totMesBenef[b.id]=calcs.reduce((s2,r)=>s2+Math.round(r.c.baseTotal*(b.percentual||0)*100)/100,0);
+    totAbertoBenef[b.id]=calcs.reduce((s2,r)=>s2+(r.c.partes[b.id]||0),0);
+  });
+  const totComissoesMes=benef.reduce((s2,b)=>s2+totMesBenef[b.id],0);
+  const totComissoesAberto=benef.reduce((s2,b)=>s2+totAbertoBenef[b.id],0);
+
   const naoMarcados=(all||[]).filter(x=>
     x.tipo==='receber' && !x.comissionavel && mesRecebimento(x)===mes &&
     ['recebido','parcial'].includes(x.status)
@@ -3569,17 +3584,26 @@ async function renderComissoes(all){
 
   const cardsBenef=benef.map(b=>
     '<div class="metric-card"><div class="metric-label">'+b.nome+' ('+(b.percentual*100).toFixed(2).replace('.',',')+'%)</div>'+
-    '<div class="metric-value blue">'+fmt(totPorBenef[b.id])+'</div>'+
-    '<div class="metric-sub">'+calcs.length+' recebimento(s)</div></div>'
+    '<div class="metric-value blue">'+fmt(totMesBenef[b.id])+'</div>'+
+    '<div class="metric-sub">'+(totAbertoBenef[b.id]>0.004?fmt(totAbertoBenef[b.id])+' ainda a lançar':'tudo lançado')+'</div></div>'
   ).join('');
 
   const colsBenef=benef.map(b=>'<th class="td-right">'+b.nome+'</th>').join('');
 
+  const selo=(sit)=>{
+    if(sit==='lancado')return '<span style="padding:1px 7px;background:var(--accent-light);color:var(--accent);border-radius:10px;font-size:10px;font-weight:600">lançado</span>';
+    if(sit==='parcial')return '<span style="padding:1px 7px;background:var(--blue-light);color:var(--blue);border-radius:10px;font-size:10px;font-weight:600">parcialmente lançado</span>';
+    return '<span style="padding:1px 7px;background:#FFF3E0;color:#9C5700;border-radius:10px;font-size:10px;font-weight:600">a lançar</span>';
+  };
+
   const linhas=calcs.map(r=>{
     const x=r.item,c=r.c;
-    return '<tr>'+
-      '<td>'+x.desc+(x.tem_indicacao?'<span style="margin-left:6px;padding:1px 6px;background:#FFF3E0;color:#9C5700;border-radius:10px;font-size:10px;font-weight:600">indicação</span>':'')+
-        (x.status==='parcial'?'<span style="margin-left:6px;padding:1px 6px;background:var(--blue-light);color:var(--blue);border-radius:10px;font-size:10px;font-weight:600">parcial</span>':'')+'</td>'+
+    const opaco=(r.situacao==='lancado')?'opacity:.72;':'';
+    return '<tr style="'+opaco+'">'+
+      '<td>'+x.desc+
+        (x.tem_indicacao?'<span style="margin-left:6px;padding:1px 6px;background:#FFF3E0;color:#9C5700;border-radius:10px;font-size:10px;font-weight:600">indicação</span>':'')+
+        (x.status==='parcial'?'<span style="margin-left:6px;padding:1px 6px;background:var(--blue-light);color:var(--blue);border-radius:10px;font-size:10px;font-weight:600">receb. parcial</span>':'')+
+        '<div style="margin-top:3px">'+selo(r.situacao)+'</div></td>'+
       '<td style="color:var(--text2)">'+(x.parte||'—')+'</td>'+
       '<td class="td-mono" style="color:var(--text2)">'+fmtDate(x.data_pagamento||x.venc)+'</td>'+
       '<td class="td-right td-mono">'+fmt(c.bruto)+'</td>'+
@@ -3591,9 +3615,9 @@ async function renderComissoes(all){
         '<span style="font-size:11px;color:var(--text3)">%</span></div>'+
         '<div class="td-mono" style="font-size:11px;color:var(--accent2);margin-top:2px">-'+fmt(c.imposto)+'</div></td>'+
       '<td class="td-right td-mono" style="color:var(--accent2)">'+(c.indicacao?'-'+fmt(c.indicacao):'—')+'</td>'+
-      '<td class="td-right td-mono" style="font-weight:500">'+fmt(c.base)+
-        (c.jaPaga>0?'<div style="font-size:9px;color:var(--text3);white-space:nowrap">total '+fmt(c.baseTotal)+' &middot; já pago '+fmt(c.jaPaga)+'</div>':'')+'</td>'+
-      benef.map(b=>'<td class="td-right td-mono" style="color:var(--blue)">'+fmt(c.partes[b.id]||0)+'</td>').join('')+
+      '<td class="td-right td-mono" style="font-weight:500">'+fmt(c.baseTotal)+
+        (c.jaPaga>0.004&&c.base>0.004?'<div style="font-size:9px;color:var(--text3);white-space:nowrap">a lançar '+fmt(c.base)+'</div>':'')+'</td>'+
+      benef.map(b=>'<td class="td-right td-mono" style="color:var(--blue)">'+fmt(Math.round(c.baseTotal*(b.percentual||0)*100)/100)+'</td>').join('')+
       '</tr>';
   }).join('');
 
@@ -3602,15 +3626,20 @@ async function renderComissoes(all){
     '<td class="td-right td-mono">'+fmt(totBruto)+'</td>'+
     '<td class="td-right td-mono" style="color:var(--accent2)">-'+fmt(totImposto)+'</td>'+
     '<td class="td-right td-mono" style="color:var(--accent2)">'+(totIndic?'-'+fmt(totIndic):'—')+'</td>'+
-    '<td class="td-right td-mono">'+fmt(totBase)+'</td>'+
-    benef.map(b=>'<td class="td-right td-mono" style="color:var(--blue)">'+fmt(totPorBenef[b.id])+'</td>').join('')+
+    '<td class="td-right td-mono">'+fmt(totBaseMes)+'</td>'+
+    benef.map(b=>'<td class="td-right td-mono" style="color:var(--blue)">'+fmt(totMesBenef[b.id])+'</td>').join('')+
     '</tr>';
+
+  const btnsRelatorio=benef.map(b=>
+    '<button class="btn" onclick="relatorioIndividual(\''+b.id+'\')" style="padding:5px 10px;font-size:12px">'+
+    '<i class="ti ti-file-text"></i> '+b.nome+'</button>').join('');
 
   document.getElementById('content').innerHTML=
   '<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:20px">'+
-    '<div class="metric-card"><div class="metric-label">Base de cálculo</div><div class="metric-value">'+fmt(totBase)+'</div><div class="metric-sub">recebido menos imposto e indicação</div></div>'+
+    '<div class="metric-card"><div class="metric-label">Base de cálculo do mês</div><div class="metric-value">'+fmt(totBaseMes)+'</div><div class="metric-sub">recebido menos imposto e indicação</div></div>'+
     cardsBenef+
-    '<div class="metric-card"><div class="metric-label">Total em comissões</div><div class="metric-value red">'+fmt(totComissoes)+'</div><div class="metric-sub">a lançar em A Pagar</div></div>'+
+    '<div class="metric-card"><div class="metric-label">Total em comissões</div><div class="metric-value red">'+fmt(totComissoesMes)+'</div>'+
+      '<div class="metric-sub">'+(totComissoesAberto>0.004?fmt(totComissoesAberto)+' ainda a lançar':'tudo já lançado em A Pagar')+'</div></div>'+
   '</div>'+
 
   (naoMarcados>0?
@@ -3618,12 +3647,15 @@ async function renderComissoes(all){
     '<i class="ti ti-info-circle"></i> Existem <strong>'+naoMarcados+'</strong> recebimento(s) neste mês que não estão marcados como comissionáveis. '+
     'Marque-os em Contas a Receber (individualmente ou pela edição em lote) para que entrem neste cálculo.</div>':'')+
 
-  '<div class="table-wrap" style="margin-bottom:20px">'+
-    '<div class="table-header">'+
+  '<div class="table-wrap" style="margin-bottom:16px">'+
+    '<div class="table-header" style="flex-wrap:wrap;gap:8px">'+
       '<div class="table-title">Recebimentos comissionáveis — '+getMesLabel(mes)+'</div>'+
-      '<div style="display:flex;gap:8px">'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
         '<button class="btn" onclick="abrirConfigComissoes()" style="padding:5px 10px;font-size:12px"><i class="ti ti-settings"></i> Parâmetros</button>'+
-        '<button class="btn primary" onclick="gerarLancamentosComissao()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-plus"></i> Gerar lançamentos em A Pagar</button>'+
+        '<button class="btn export" onclick="exportarComissoesPDF()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-type-pdf"></i> PDF geral</button>'+
+        (totComissoesAberto>0.004?
+          '<button class="btn primary" onclick="gerarLancamentosComissao()" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-plus"></i> Gerar lançamentos em A Pagar</button>'
+          :'<button class="btn" disabled style="padding:5px 10px;font-size:12px;opacity:.55;cursor:default"><i class="ti ti-check"></i> Comissões do mês já lançadas</button>')+
       '</div>'+
     '</div>'+
     (calcs.length?
@@ -3633,13 +3665,144 @@ async function renderComissoes(all){
       :'<div class="empty"><i class="ti ti-inbox"></i><p>Nenhum recebimento comissionável neste mês.</p></div>')+
   '</div>'+
 
+  (benef.length&&calcs.length?
+  '<div class="table-wrap" style="margin-bottom:20px">'+
+    '<div class="table-header" style="flex-wrap:wrap;gap:8px">'+
+      '<div class="table-title">Relatório individual — para enviar a cada pessoa</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+btnsRelatorio+'</div>'+
+    '</div>'+
+    '<div style="padding:12px 16px;font-size:12px;color:var(--text2)">'+
+      'Abre um demonstrativo só daquela pessoa, com os projetos, os valores recebidos e o cálculo da comissão. Dá para salvar em PDF ou imprimir.'+
+    '</div>'+
+  '</div>':'')+
+
   '<div style="padding:12px 16px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.8">'+
     '<strong>Como o cálculo é feito:</strong><br>'+
     'Base = valor recebido &minus; imposto &minus; indicação ('+((cfg.indicacao||0)*100).toFixed(0)+'%, só quando marcada).<br>'+
     'A comissão de cada pessoa é o percentual dela aplicado sobre essa base.<br>'+
     'A alíquota do imposto pode ser alterada linha a linha na tabela acima — a borda azul indica que o recebimento tem alíquota própria. '+
-    'Os demais usam o padrão de '+((cfg.imposto||0)*100).toFixed(2).replace('.',',')+'%, ajustável em Parâmetros.'+
+    'Os demais usam o padrão de '+((cfg.imposto||0)*100).toFixed(2).replace('.',',')+'%, ajustável em Parâmetros.<br>'+
+    'O selo <strong>lançado</strong> indica que a comissão daquele recebimento já virou conta a pagar. Ele continua na lista para consulta e não é lançado de novo.'+
   '</div>';
+}
+
+// monta os dados de comissão do mês, reaproveitado pela tela e pelos relatórios
+async function dadosComissoesMes(mes){
+  const all=await getData();
+  const cfg=await getComConfig();
+  const benef=await getComBenef();
+  const elegiveis=all.filter(x=>
+    x.tipo==='receber' && x.comissionavel && mesRecebimento(x)===mes &&
+    ['recebido','parcial'].includes(x.status)
+  ).sort((a,b)=>(a.venc||'').localeCompare(b.venc||''));
+  const calcs=elegiveis.map(x=>({item:x,c:calcComissao(x,cfg,benef)}));
+  return {all,cfg,benef,calcs};
+}
+
+async function relatorioIndividual(benefId){
+  const mes=currentMes;
+  const {cfg,benef,calcs}=await dadosComissoesMes(mes);
+  const b=benef.find(x=>x.id===benefId);
+  if(!b){showToast('Beneficiário não encontrado.');return;}
+  if(!calcs.length){showToast('Nenhum recebimento comissionável neste mês.');return;}
+
+  const linhas=calcs.map(r=>{
+    const x=r.item,c=r.c;
+    const valorPessoa=Math.round(c.baseTotal*(b.percentual||0)*100)/100;
+    return '<tr>'+
+      '<td>'+x.desc+(x.tem_indicacao?' <small style="color:#9C5700">(com indicação)</small>':'')+'</td>'+
+      '<td>'+(x.parte||'—')+'</td>'+
+      '<td style="text-align:center">'+fmtDate(x.data_pagamento||x.venc)+'</td>'+
+      '<td style="text-align:right">'+fmt(c.bruto)+'</td>'+
+      '<td style="text-align:right">'+(c.aliq*100).toFixed(2).replace('.',',')+'%</td>'+
+      '<td style="text-align:right">'+fmt(c.baseTotal)+'</td>'+
+      '<td style="text-align:right;font-weight:600">'+fmt(valorPessoa)+'</td>'+
+    '</tr>';
+  }).join('');
+
+  const total=calcs.reduce((s2,r)=>s2+Math.round(r.c.baseTotal*(b.percentual||0)*100)/100,0);
+  const totalBase=calcs.reduce((s2,r)=>s2+r.c.baseTotal,0);
+  const totalBruto=calcs.reduce((s2,r)=>s2+r.c.bruto,0);
+
+  const win=window.open('','_blank');
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Comissão '+b.nome+' — '+getMesLabel(mes)+'</title>'+
+  '<style>'+
+  'body{font-family:Arial,sans-serif;max-width:860px;margin:40px auto;padding:0 24px;color:#1A1814;font-size:13px}'+
+  'h1{font-size:19px;color:#2A5C45;margin-bottom:4px}'+
+  '.sub{color:#777;font-size:12px;margin-bottom:22px}'+
+  '.destaque{background:#E8F2ED;border:1px solid #2A5C45;border-radius:8px;padding:16px 20px;margin-bottom:22px}'+
+  '.destaque .rot{font-size:11px;color:#2A5C45;text-transform:uppercase;letter-spacing:.5px}'+
+  '.destaque .val{font-size:26px;font-weight:700;color:#2A5C45;font-family:monospace}'+
+  'table{width:100%;border-collapse:collapse;margin-bottom:18px}'+
+  'th{background:#F5F4F0;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;color:#666;border-bottom:2px solid #ddd}'+
+  'td{padding:8px 10px;border-bottom:1px solid #eee;font-size:12px}'+
+  'tfoot td{font-weight:700;background:#F5F4F0;border-top:2px solid #2A5C45}'+
+  '.nota{font-size:11px;color:#777;line-height:1.7;padding:12px 16px;background:#FAFAF8;border-radius:6px}'+
+  '.footer{margin-top:30px;padding-top:14px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center}'+
+  '@media print{body{margin:0}}'+
+  '</style></head><body>'+
+  '<h1>Demonstrativo de Comissão — '+b.nome+'</h1>'+
+  '<div class="sub">DellaSá Estruturas Ltda &middot; Referência: '+getMesLabel(mes)+'</div>'+
+  '<div class="destaque"><div class="rot">Total a receber de comissão</div><div class="val">'+fmt(total)+'</div>'+
+    '<div style="font-size:11px;color:#2A5C45;margin-top:6px">'+(b.percentual*100).toFixed(2).replace('.',',')+'% sobre a base de '+fmt(totalBase)+' &middot; '+calcs.length+' recebimento(s)</div></div>'+
+  '<table><thead><tr><th>Projeto / Descrição</th><th>Cliente</th><th style="text-align:center">Recebido em</th>'+
+    '<th style="text-align:right">Valor recebido</th><th style="text-align:right">Imposto</th>'+
+    '<th style="text-align:right">Base</th><th style="text-align:right">Comissão</th></tr></thead>'+
+    '<tbody>'+linhas+'</tbody>'+
+    '<tfoot><tr><td colspan="3">TOTAL</td><td style="text-align:right">'+fmt(totalBruto)+'</td><td></td>'+
+    '<td style="text-align:right">'+fmt(totalBase)+'</td><td style="text-align:right">'+fmt(total)+'</td></tr></tfoot></table>'+
+  '<div class="nota"><strong>Como o valor é calculado:</strong> sobre cada valor recebido descontamos o imposto e, quando houver, a indicação. '+
+    'O resultado é a base de cálculo, e a comissão corresponde a '+(b.percentual*100).toFixed(2).replace('.',',')+'% dessa base. '+
+    'A comissão acompanha o recebimento: só entra aqui o que foi efetivamente recebido no mês.</div>'+
+  '<div class="footer">Emitido em '+new Date().toLocaleDateString('pt-BR')+' &middot; Sistema Financeiro DellaSá</div>'+
+  '</body></html>');
+  win.document.close();
+  win.onload=()=>{setTimeout(()=>win.print(),400);};
+}
+
+async function exportarComissoesPDF(){
+  const mes=currentMes;
+  const {cfg,benef,calcs}=await dadosComissoesMes(mes);
+  if(!calcs.length){showToast('Nenhum recebimento comissionável neste mês.');return;}
+
+  const colsBenef=benef.map(b=>'<th style="text-align:right">'+b.nome+'</th>').join('');
+  const linhas=calcs.map(r=>{
+    const x=r.item,c=r.c;
+    return '<tr>'+
+      '<td>'+x.desc+(c.jaPaga>0.004?' <small style="color:#2A5C45">(lançado)</small>':'')+'</td>'+
+      '<td>'+(x.parte||'—')+'</td>'+
+      '<td style="text-align:center">'+fmtDate(x.data_pagamento||x.venc)+'</td>'+
+      '<td style="text-align:right">'+fmt(c.bruto)+'</td>'+
+      '<td style="text-align:right">'+(c.aliq*100).toFixed(2).replace('.',',')+'%</td>'+
+      '<td style="text-align:right">'+fmt(c.baseTotal)+'</td>'+
+      benef.map(b=>'<td style="text-align:right">'+fmt(Math.round(c.baseTotal*(b.percentual||0)*100)/100)+'</td>').join('')+
+    '</tr>';
+  }).join('');
+  const totBruto=calcs.reduce((s2,r)=>s2+r.c.bruto,0);
+  const totBase=calcs.reduce((s2,r)=>s2+r.c.baseTotal,0);
+  const totBenef=benef.map(b=>calcs.reduce((s2,r)=>s2+Math.round(r.c.baseTotal*(b.percentual||0)*100)/100,0));
+
+  const win=window.open('','_blank');
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Comissões — '+getMesLabel(mes)+'</title>'+
+  '<style>body{font-family:Arial,sans-serif;max-width:960px;margin:40px auto;padding:0 24px;color:#1A1814;font-size:12px}'+
+  'h1{font-size:19px;color:#2A5C45;border-bottom:2px solid #2A5C45;padding-bottom:8px;margin-bottom:18px}'+
+  'table{width:100%;border-collapse:collapse;margin-bottom:16px}'+
+  'th{background:#F5F4F0;text-align:left;padding:7px 9px;font-size:10px;text-transform:uppercase;color:#666;border-bottom:2px solid #ddd}'+
+  'td{padding:7px 9px;border-bottom:1px solid #eee}'+
+  'tfoot td{font-weight:700;background:#F5F4F0;border-top:2px solid #2A5C45}'+
+  '.footer{margin-top:28px;padding-top:14px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center}'+
+  '@media print{body{margin:0}}</style></head><body>'+
+  '<h1>DellaSá Estruturas — Comissões de '+getMesLabel(mes)+'</h1>'+
+  '<table><thead><tr><th>Projeto / Descrição</th><th>Cliente</th><th style="text-align:center">Recebido em</th>'+
+    '<th style="text-align:right">Valor recebido</th><th style="text-align:right">Imposto</th><th style="text-align:right">Base</th>'+colsBenef+'</tr></thead>'+
+    '<tbody>'+linhas+'</tbody>'+
+    '<tfoot><tr><td colspan="3">TOTAL</td><td style="text-align:right">'+fmt(totBruto)+'</td><td></td>'+
+    '<td style="text-align:right">'+fmt(totBase)+'</td>'+
+    totBenef.map(v=>'<td style="text-align:right">'+fmt(v)+'</td>').join('')+'</tr></tfoot></table>'+
+  '<div class="footer">Emitido em '+new Date().toLocaleDateString('pt-BR')+' &middot; Sistema Financeiro DellaSá</div>'+
+  '</body></html>');
+  win.document.close();
+  win.onload=()=>{setTimeout(()=>win.print(),400);};
 }
 
 async function alterarAliquota(id,valor){
