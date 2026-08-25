@@ -3555,8 +3555,8 @@ function aliqImposto(item,cfg){
   return (v===null||v===undefined||isNaN(v))?(cfg.imposto||0):v;
 }
 
-function calcComissao(item,cfg,benef){
-  const bruto=valRealizado(item);
+function calcComissao(item,cfg,benef,brutoForcado){
+  const bruto=(brutoForcado===undefined||brutoForcado===null)?valRealizado(item):brutoForcado;
   const aliq=aliqImposto(item,cfg);
   const imposto=Math.round(bruto*aliq*100)/100;
   const indicacao=item.tem_indicacao?Math.round((bruto-imposto)*(cfg.indicacao||0)*100)/100:0;
@@ -3609,6 +3609,48 @@ async function renderComissoes(all){
     x.tipo==='receber' && !x.comissionavel && mesRecebimento(x)===mes &&
     ['recebido','parcial'].includes(x.status)
   ).length;
+
+  // PREVISÃO: comissionáveis do mês que ainda não foram recebidos
+  const previstos=(all||[]).filter(x=>
+    x.tipo==='receber' && x.comissionavel && mesRecebimento(x)===mes &&
+    ['pendente','vencido'].includes(x.status)
+  ).sort((a,b)=>(a.venc||'').localeCompare(b.venc||''));
+
+  const calcsPrev=previstos.map(x=>({
+    item:x,
+    c:calcComissao(x,cfg,benef,Math.max(0,valEf(x)-(parseFloat(x.pago_parcial)||0)))
+  }));
+  const totPrevBase=calcsPrev.reduce((s2,r)=>s2+r.c.baseTotal,0);
+  const totPrevBenef={};
+  benef.forEach(b=>{
+    totPrevBenef[b.id]=calcsPrev.reduce((s2,r)=>s2+Math.round(r.c.baseTotal*(b.percentual||0)*100)/100,0);
+  });
+  const totPrevComissoes=benef.reduce((s2,b)=>s2+totPrevBenef[b.id],0);
+
+  const linhasPrev=calcsPrev.map(r=>{
+    const x=r.item,c=r.c;
+    const venc=x.venc||'';
+    const atrasado=x.status==='vencido';
+    return '<tr>'+
+      '<td>'+x.desc+
+        (x.tem_indicacao?'<span style="margin-left:6px;padding:1px 6px;background:#FFF3E0;color:#9C5700;border-radius:10px;font-size:10px;font-weight:600">indicação</span>':'')+
+        '<div style="margin-top:3px"><span style="padding:1px 7px;background:'+(atrasado?'#FDECEA':'var(--surface2)')+';color:'+(atrasado?'var(--accent2)':'var(--text3)')+';border-radius:10px;font-size:10px;font-weight:600">'+(atrasado?'vencido — ainda não recebido':'a receber')+'</span></div></td>'+
+      '<td style="color:var(--text2)">'+(x.parte||'—')+'</td>'+
+      '<td class="td-mono" style="color:var(--text2)">'+fmtDate(venc)+'</td>'+
+      '<td class="td-right td-mono">'+fmt(c.bruto)+'</td>'+
+      '<td class="td-right td-mono" style="color:var(--text3)">'+(c.aliq*100).toFixed(2).replace('.',',')+'%</td>'+
+      '<td class="td-right td-mono">'+fmt(c.baseTotal)+'</td>'+
+      benef.map(b=>'<td class="td-right td-mono" style="color:var(--text2)">'+fmt(Math.round(c.baseTotal*(b.percentual||0)*100)/100)+'</td>').join('')+
+      '</tr>';
+  }).join('');
+
+  const rodapePrev='<tr style="background:var(--surface2);font-weight:600">'+
+    '<td colspan="3">PREVISTO — '+getMesLabel(mes)+'</td>'+
+    '<td class="td-right td-mono">'+fmt(calcsPrev.reduce((s2,r)=>s2+r.c.bruto,0))+'</td>'+
+    '<td></td>'+
+    '<td class="td-right td-mono">'+fmt(totPrevBase)+'</td>'+
+    benef.map(b=>'<td class="td-right td-mono">'+fmt(totPrevBenef[b.id])+'</td>').join('')+
+    '</tr>';
 
   const cardsBenef=benef.map(b=>
     '<div class="metric-card"><div class="metric-label">'+b.nome+' ('+(b.percentual*100).toFixed(2).replace('.',',')+'%)</div>'+
@@ -3668,6 +3710,10 @@ async function renderComissoes(all){
     cardsBenef+
     '<div class="metric-card"><div class="metric-label">Total em comissões</div><div class="metric-value red">'+fmt(totComissoesMes)+'</div>'+
       '<div class="metric-sub">'+(totComissoesAberto>0.004?fmt(totComissoesAberto)+' ainda a lançar':'tudo já lançado em A Pagar')+'</div></div>'+
+    (calcsPrev.length?
+      '<div class="metric-card" style="border-style:dashed"><div class="metric-label">Previsto (ainda não recebido)</div>'+
+      '<div class="metric-value" style="color:var(--text3)">'+fmt(totPrevComissoes)+'</div>'+
+      '<div class="metric-sub">'+calcsPrev.length+' recebimento(s) a entrar</div></div>':'')+
   '</div>'+
 
   (naoMarcados>0?
@@ -3690,8 +3736,23 @@ async function renderComissoes(all){
       ('<table><thead><tr><th>Descrição</th><th>Cliente</th><th>Recebido em</th>'+
        '<th class="td-right">Valor recebido</th><th class="td-right">Imposto (%)</th><th class="td-right">Indicação</th>'+
        '<th class="td-right">Base</th>'+colsBenef+'</tr></thead><tbody>'+linhas+rodape+'</tbody></table>')
-      :'<div class="empty"><i class="ti ti-inbox"></i><p>Nenhum recebimento comissionável neste mês.</p></div>')+
+      :'<div class="empty"><i class="ti ti-inbox"></i><p>Nenhum recebimento comissionável <strong>já recebido</strong> neste mês.'+
+        (calcsPrev.length?'<br><span style="font-size:12px">Há '+calcsPrev.length+' previsto(s) na tabela abaixo, aguardando o recebimento.</span>':'')+'</p></div>')+
   '</div>'+
+
+  (calcsPrev.length?
+  '<div class="table-wrap" style="margin-bottom:16px;border-style:dashed">'+
+    '<div class="table-header">'+
+      '<div class="table-title" style="color:var(--text2)">Previsão — ainda não recebido em '+getMesLabel(mes)+'</div>'+
+      '<div style="font-size:11px;color:var(--text3)">não gera lançamento enquanto o dinheiro não entrar</div>'+
+    '</div>'+
+    '<table><thead><tr><th>Descrição</th><th>Cliente</th><th>Vencimento</th>'+
+      '<th class="td-right">Valor a receber</th><th class="td-right">Imposto</th>'+
+      '<th class="td-right">Base prevista</th>'+colsBenef+'</tr></thead><tbody>'+linhasPrev+rodapePrev+'</tbody></table>'+
+    '<div style="padding:10px 16px;font-size:11px;color:var(--text3);border-top:1px solid var(--border)">'+
+      'Assim que você marcar esses títulos como recebidos, eles passam para a tabela de cima e ficam disponíveis para gerar em A Pagar.'+
+    '</div>'+
+  '</div>':'')+
 
   (benef.length&&calcs.length?
   '<div class="table-wrap" style="margin-bottom:20px">'+
