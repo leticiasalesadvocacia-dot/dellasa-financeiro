@@ -209,6 +209,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <button class="nav-item" onclick="showPage('orcamentos')" id="nav-orcamentos"><i class="ti ti-file-dollar"></i><span class="nav-label"> Orçamentos</span></button>
       <button class="nav-item" onclick="showPage('emprestimos')" id="nav-emprestimos"><i class="ti ti-building-bank"></i><span class="nav-label"> Empréstimos</span></button>
       <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i><span class="nav-label"> Proj. Pausados</span></button>
+      <button class="nav-item" onclick="showPage('cartoes')" id="nav-cartoes"><i class="ti ti-credit-card"></i><span class="nav-label"> Cartões</span></button>
       <button class="nav-item" onclick="showPage('comissoes')" id="nav-comissoes"><i class="ti ti-users-group"></i><span class="nav-label"> Comissões</span></button>
       <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i><span class="nav-label"> Relatórios</span></button>
       <button class="nav-item" onclick="showPage('historico')" id="nav-historico"><i class="ti ti-history"></i><span class="nav-label"> Histórico</span></button>
@@ -624,6 +625,105 @@ if (sessionStorage.getItem('ds_auth') === '1') {
   </div>
 </div>
 
+<!-- Modal cadastro de cartão -->
+<div class="modal-backdrop" id="modal-cartao">
+  <div class="modal" style="width:440px">
+    <div class="modal-title">
+      <span id="cartao-modal-titulo"><i class="ti ti-credit-card"></i> Novo cartão</span>
+      <button class="modal-close" onclick="closeModal('modal-cartao')">&times;</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nome do cartão</label>
+      <input class="form-input" id="ct-nome" placeholder="Ex: Sicredi Empresarial" />
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Bandeira</label>
+        <input class="form-input" id="ct-bandeira" placeholder="Visa, Master..." />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Limite (R$)</label>
+        <input class="form-input" id="ct-limite" type="number" step="0.01" placeholder="0,00" />
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Dia do fechamento</label>
+        <input class="form-input" id="ct-fechamento" type="number" min="1" max="31" placeholder="25" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Dia do vencimento</label>
+        <input class="form-input" id="ct-vencimento" type="number" min="1" max="31" placeholder="5" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="ct-btn-excluir" onclick="excluirCartao()" style="margin-right:auto;color:var(--accent2)"><i class="ti ti-trash"></i> Excluir</button>
+      <button class="btn" onclick="closeModal('modal-cartao')">Cancelar</button>
+      <button class="btn primary" onclick="salvarCartao()"><i class="ti ti-check"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal compra no cartão -->
+<div class="modal-backdrop" id="modal-despesa-cartao">
+  <div class="modal" style="width:460px">
+    <div class="modal-title">
+      <span id="dc-titulo"><i class="ti ti-shopping-cart"></i> Lançar compra</span>
+      <button class="modal-close" onclick="closeModal('modal-despesa-cartao')">&times;</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Descrição</label>
+      <input class="form-input" id="dc-desc" placeholder="Ex: Material de escritório" />
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Valor da parcela (R$)</label>
+        <input class="form-input" id="dc-valor" type="number" step="0.01" placeholder="0,00" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Categoria</label>
+        <select class="form-select" id="dc-cat"></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Parcela nº</label>
+        <input class="form-input" id="dc-parcela" type="number" min="1" placeholder="Deixe vazio se à vista" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Total de parcelas</label>
+        <input class="form-input" id="dc-total" type="number" min="1" placeholder="Deixe vazio se à vista" />
+      </div>
+    </div>
+    <div style="padding:9px 12px;background:var(--blue-light);border-radius:8px;font-size:11px;color:var(--blue);margin-bottom:4px">
+      <i class="ti ti-info-circle"></i> Se preencher as parcelas, as seguintes são criadas automaticamente nos próximos meses.
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-despesa-cartao')">Cancelar</button>
+      <button class="btn primary" onclick="salvarDespesaCartao()"><i class="ti ti-check"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal importar fatura -->
+<div class="modal-backdrop" id="modal-importar-cartao">
+  <div class="modal" style="width:620px;max-height:88vh;overflow-y:auto">
+    <div class="modal-title">
+      <span id="ic-titulo"><i class="ti ti-file-import"></i> Importar fatura</span>
+      <button class="modal-close" onclick="closeModal('modal-importar-cartao')">&times;</button>
+    </div>
+    <div style="padding:10px 12px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.7">
+      Cole as linhas da fatura — do extrato do banco, do PDF ou do CSV. Uma por linha.
+      O sistema pega o <strong>último número</strong> de cada linha como valor e reconhece parcelas no formato <strong>3/10</strong>.
+    </div>
+    <textarea id="ic-texto" style="width:100%;min-height:150px;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:var(--mono);font-size:12px;resize:vertical" placeholder="POSTO IPIRANGA 289,00&#10;MATERIAL ESCRITORIO 3/10 120,00&#10;ASSINATURA SOFTWARE 89,90"></textarea>
+    <div style="display:flex;gap:8px;margin:10px 0">
+      <button class="btn primary" onclick="lerFaturaColada()" style="flex:1"><i class="ti ti-eye"></i> Conferir linhas</button>
+    </div>
+    <div id="ic-preview"></div>
+  </div>
+</div>
+
 <!-- Modal parâmetros de comissão -->
 <div class="modal-backdrop" id="modal-com-config">
   <div class="modal" style="width:480px">
@@ -996,7 +1096,8 @@ function localToDb(item) {
     tem_indicacao: item.tem_indicacao||false,
     comissao_base_paga: numAj(item.comissao_base_paga),
     imposto_pct: (item.imposto_pct===''||item.imposto_pct===null||item.imposto_pct===undefined)?null:numAj(item.imposto_pct),
-    comissao_ref: item.comissao_ref||null
+    comissao_ref: item.comissao_ref||null,
+    cartao_ref: item.cartao_ref||null
   };
 }
 
@@ -1018,7 +1119,8 @@ function dbToLocal(row) {
     tem_indicacao: row.tem_indicacao||false,
     comissao_base_paga: parseFloat(row.comissao_base_paga)||0,
     imposto_pct: (row.imposto_pct===null||row.imposto_pct===undefined)?null:parseFloat(row.imposto_pct),
-    comissao_ref: row.comissao_ref||null
+    comissao_ref: row.comissao_ref||null,
+    cartao_ref: row.cartao_ref||null
   };
 }
 
@@ -1062,6 +1164,63 @@ async function getSaldos() {
 
 async function saveSaldo(mes, val) {
   await db('upsert', 'saldos', {mes, valor: val});
+}
+
+// === CARTÕES DE CRÉDITO ===
+async function getCartoes(){
+  try{
+    const rows=await db('select','cartoes');
+    if(!Array.isArray(rows))return [];
+    return rows.filter(r=>r.ativo!==false).map(r=>({
+      id:r.id, nome:r.nome, bandeira:r.bandeira||'',
+      limite:parseFloat(r.limite)||0,
+      diaFechamento:parseInt(r.dia_fechamento)||1,
+      diaVencimento:parseInt(r.dia_vencimento)||10
+    })).sort((a,b)=>a.nome.localeCompare(b.nome));
+  }catch(e){ console.error('cartoes',e); return []; }
+}
+async function saveCartao(c){
+  await db('upsert','cartoes',{
+    id:c.id, nome:c.nome, bandeira:c.bandeira||null,
+    limite:c.limite||0, dia_fechamento:c.diaFechamento||1,
+    dia_vencimento:c.diaVencimento||10, ativo:true
+  });
+}
+async function delCartao(id){
+  // o helper db() só apaga por id, então removemos uma a uma
+  const todas=await getDespesasCartao();
+  for(const d of todas.filter(x=>x.cartaoId===id)){
+    await db('delete','cartao_despesas',{id:d.id});
+  }
+  await db('delete','cartoes',{id});
+}
+
+async function getDespesasCartao(){
+  try{
+    const rows=await db('select','cartao_despesas');
+    if(!Array.isArray(rows))return [];
+    return rows.map(r=>({
+      id:r.id, cartaoId:r.cartao_id, mes:r.mes, desc:r.descricao||'',
+      valor:parseFloat(r.valor)||0, cat:r.cat||'Outros',
+      parcela:r.parcela||null, totalParcelas:r.total_parcelas||null,
+      serie:r.serie||null
+    }));
+  }catch(e){ console.error('cartao_despesas',e); return []; }
+}
+async function saveDespesaCartao(d){
+  await db('upsert','cartao_despesas',{
+    id:d.id, cartao_id:d.cartaoId, mes:d.mes, descricao:d.desc,
+    valor:d.valor||0, cat:d.cat||'Outros',
+    parcela:d.parcela||null, total_parcelas:d.totalParcelas||null,
+    serie:d.serie||null
+  });
+}
+async function delDespesaCartao(id){ await db('delete','cartao_despesas',{id}); }
+async function delSerieCartao(serie,aPartirDe){
+  const todas=await getDespesasCartao();
+  const alvo=todas.filter(d=>d.serie===serie && d.mes>=aPartirDe);
+  for(const d of alvo){ await delDespesaCartao(d.id); }
+  return alvo;
 }
 
 // Comissões — parâmetros e beneficiários
@@ -1172,7 +1331,7 @@ function showPage(p){
   currentPage=p;tblStatus='todos';tblSearch='';tblDe='';tblAte='';tblDia='';tblModoData='mes';
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('nav-'+p)?.classList.add('active');
-  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',comissoes:'Comissões da Equipe',historico:'Histórico'};
+  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',cartoes:'Cartões de Crédito',comissoes:'Comissões da Equipe',historico:'Histórico'};
   document.getElementById('page-title').textContent=titles[p]||p;
   document.getElementById('btn-add').style.display=(p==='dashboard'||p==='receber'||p==='pagar'||p==='orcamentos'||p==='pausados')?'':'none';
   if(p==='orcamentos') document.getElementById('btn-add').onclick=()=>openOrcamento();
@@ -2051,6 +2210,7 @@ async function render(){
     else if(currentPage==='orcamentos')await renderOrcamentos();
     else if(currentPage==='emprestimos')await renderEmprestimos();
     else if(currentPage==='pausados')await renderPausados();
+    else if(currentPage==='cartoes')await renderCartoes(all);
     else if(currentPage==='comissoes')await renderComissoes(all);
     else if(currentPage==='relatorios')renderRelatorios();
     else if(currentPage==='historico')renderHistorico(all);
@@ -3541,6 +3701,465 @@ function buildResumoMes(all,mes){
   const pendPag=dep.reduce((s,x)=>s+valEmAberto(x),0);
   const bycat=(arr)=>{const m={};arr.forEach(x=>{m[x.cat||'Outros']=(m[x.cat||'Outros']||0)+valEf(x);});return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
   return{tRec,tDep,recebido,pago,pagoParcial,pendRec,pendPag,resultado:tRec-tDep,margem:tRec>0?((tRec-tDep)/tRec*100):0,recCats:bycat(rec),depCats:bycat(dep),nRec:rec.length,nDep:dep.length,vencidos:rec.filter(x=>x.status==='vencido'),items};
+}
+
+/* ========== CARTÕES DE CRÉDITO ========== */
+
+let _cartaoPendentes=[];
+
+function proxMes(mes,n){
+  const [y,m]=mes.split('-').map(Number);
+  const d=new Date(y,m-1+n,1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+
+function vencFatura(cartao,mes){
+  const [y,m]=mes.split('-').map(Number);
+  const ultimo=new Date(y,m,0).getDate();
+  const dia=Math.min(cartao.diaVencimento||10,ultimo);
+  return mes+'-'+String(dia).padStart(2,'0');
+}
+
+// espalha as parcelas seguintes pelos meses futuros
+async function propagarParcelas(d){
+  if(!d.totalParcelas||!d.parcela||d.parcela>=d.totalParcelas)return 0;
+  const todas=await getDespesasCartao();
+  const serie=d.serie||genId();
+  if(!d.serie){ d.serie=serie; await saveDespesaCartao(d); }
+  let n=0;
+  for(let i=1;d.parcela+i<=d.totalParcelas;i++){
+    const mesP=proxMes(d.mes,i);
+    if(todas.some(x=>x.serie===serie&&x.mes===mesP))continue;
+    await saveDespesaCartao({
+      id:genId(), cartaoId:d.cartaoId, mes:mesP, desc:d.desc,
+      valor:d.valor, cat:d.cat, parcela:d.parcela+i,
+      totalParcelas:d.totalParcelas, serie
+    });
+    n++;
+  }
+  return n;
+}
+
+// a fatura do mês vira UM lançamento em A Pagar, sempre igual à soma das compras
+async function sincronizarFatura(cartao,mes,silencioso){
+  const todas=await getDespesasCartao();
+  const doMes=todas.filter(d=>d.cartaoId===cartao.id&&d.mes===mes);
+  const total=Math.round(doMes.reduce((s2,d)=>s2+d.valor,0)*100)/100;
+  const ref='cart|'+cartao.id+'|'+mes;
+  const all=await getData();
+  const existente=all.find(x=>x.cartao_ref===ref);
+
+  if(total<=0.004){
+    if(existente&&existente.status!=='pago'){ await delItem(existente.id); }
+    return {acao:'removido',total:0};
+  }
+
+  const cats=getCats('pagar');
+  if(!cats.includes('Cartão de crédito')){ saveCats('pagar',[...cats,'Cartão de crédito']); }
+
+  const venc=vencFatura(cartao,mes);
+  const desc='Fatura '+cartao.nome+' — '+getMesLabel(mes);
+  const obs=doMes.length+' lançamento(s) no cartão.';
+
+  if(!existente){
+    await addItem({
+      id:genId(), tipo:'pagar', desc, valor:total,
+      venc, mes:venc.slice(0,7),
+      parte:cartao.nome, cat:'Cartão de crédito', status:'pendente',
+      obs, cartao_ref:ref, desconto:0, juros:0, multa:0
+    });
+    return {acao:'criado',total};
+  }
+  if(existente.status==='pago'){ return {acao:'pago',total}; }
+  if(Math.abs((parseFloat(existente.valor)||0)-total)<0.005){ return {acao:'ok',total}; }
+  await updateItem(existente.id,{valor:total,desc,obs});
+  return {acao:'atualizado',total};
+}
+
+async function renderCartoes(all){
+  const cartoes=await getCartoes();
+  const despesas=await getDespesasCartao();
+  const mes=currentMes;
+
+  if(!cartoes.length){
+    document.getElementById('content').innerHTML=
+      '<div class="table-wrap"><div class="table-header">'+
+      '<div class="table-title">Cartões de crédito</div>'+
+      '<button class="btn primary" onclick="editarCartao()" style="padding:5px 10px;font-size:12px"><i class="ti ti-plus"></i> Cadastrar cartão</button>'+
+      '</div><div class="empty"><i class="ti ti-credit-card"></i><p>Nenhum cartão cadastrado ainda.<br>'+
+      '<span style="font-size:12px">Cadastre o primeiro para começar a controlar as faturas.</span></p></div></div>';
+    return;
+  }
+
+  const totalFaturas=cartoes.reduce((s2,c)=>
+    s2+despesas.filter(d=>d.cartaoId===c.id&&d.mes===mes).reduce((t,d)=>t+d.valor,0),0);
+  const limiteTotal=cartoes.reduce((s2,c)=>s2+(c.limite||0),0);
+
+  // comprometido no futuro pelas parcelas
+  const futuro=despesas.filter(d=>d.mes>mes).reduce((s2,d)=>s2+d.valor,0);
+
+  let h='<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:20px">'+
+    '<div class="metric-card"><div class="metric-label">Faturas de '+getMesLabel(mes)+'</div>'+
+      '<div class="metric-value red">'+fmt(totalFaturas)+'</div><div class="metric-sub">'+cartoes.length+' cartão(ões)</div></div>'+
+    (limiteTotal>0?'<div class="metric-card"><div class="metric-label">Limite total</div>'+
+      '<div class="metric-value">'+fmt(limiteTotal)+'</div><div class="metric-sub">'+fmt(Math.max(0,limiteTotal-totalFaturas))+' disponível</div></div>':'')+
+    (futuro>0.004?'<div class="metric-card" style="border-style:dashed"><div class="metric-label">Parcelas já comprometidas</div>'+
+      '<div class="metric-value" style="color:var(--text3)">'+fmt(futuro)+'</div><div class="metric-sub">nos meses seguintes</div></div>':'')+
+  '</div>';
+
+  h+='<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:14px">'+
+    '<button class="btn" onclick="editarCartao()" style="padding:5px 10px;font-size:12px"><i class="ti ti-plus"></i> Novo cartão</button>'+
+    '<button class="btn primary" onclick="sincronizarTodasFaturas()" style="padding:5px 10px;font-size:12px"><i class="ti ti-refresh"></i> Sincronizar faturas com A Pagar</button>'+
+  '</div>';
+
+  for(const c of cartoes){
+    const ds=despesas.filter(d=>d.cartaoId===c.id&&d.mes===mes)
+      .sort((a,b)=>b.valor-a.valor);
+    const total=Math.round(ds.reduce((s2,d)=>s2+d.valor,0)*100)/100;
+    const ref='cart|'+c.id+'|'+mes;
+    const lanc=(all||[]).find(x=>x.cartao_ref===ref);
+    const emDia=lanc&&Math.abs((parseFloat(lanc.valor)||0)-total)<0.005;
+    const pctLimite=c.limite>0?Math.min(100,Math.round(total/c.limite*100)):0;
+
+    const porCat={};
+    ds.forEach(d=>{porCat[d.cat||'Outros']=(porCat[d.cat||'Outros']||0)+d.valor;});
+
+    h+='<div class="table-wrap" style="margin-bottom:16px">'+
+      '<div class="table-header" style="flex-wrap:wrap;gap:8px">'+
+        '<div>'+
+          '<div class="table-title">'+c.nome+(c.bandeira?' <span style="font-weight:400;color:var(--text3);font-size:12px">'+c.bandeira+'</span>':'')+'</div>'+
+          '<div style="font-size:11px;color:var(--text3);margin-top:2px">fecha dia '+c.diaFechamento+' &middot; vence dia '+c.diaVencimento+
+            (c.limite>0?' &middot; limite '+fmt(c.limite):'')+'</div>'+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
+          '<div style="text-align:right">'+
+            '<div style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--accent2)">'+fmt(total)+'</div>'+
+            '<div style="font-size:10px;color:'+(lanc?(emDia?'var(--accent)':'#9C5700'):'var(--text3)')+'">'+
+              (lanc?(emDia?'em dia com A Pagar':'A Pagar está em '+fmt(parseFloat(lanc.valor)||0)):'não lançado em A Pagar')+'</div>'+
+          '</div>'+
+          '<button class="btn" onclick="abrirImportarCartao(\'' +c.id+ '\')" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-import"></i> Importar fatura</button>'+
+          '<button class="btn" onclick="editarDespesaCartao(\'' +c.id+ '\')" style="padding:5px 10px;font-size:12px"><i class="ti ti-plus"></i> Lançar compra</button>'+
+          '<button class="btn" onclick="editarCartao(\'' +c.id+ '\')" style="padding:5px 8px;font-size:12px" title="Editar cartão"><i class="ti ti-settings"></i></button>'+
+        '</div>'+
+      '</div>';
+
+    if(c.limite>0){
+      h+='<div style="padding:10px 16px 4px">'+
+        '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:4px">'+
+          '<span>'+pctLimite+'% do limite</span><span>'+fmt(Math.max(0,c.limite-total))+' disponível</span></div>'+
+        '<div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">'+
+          '<div style="height:100%;width:'+pctLimite+'%;background:'+(pctLimite>85?'var(--accent2)':'var(--accent)')+'"></div></div>'+
+      '</div>';
+    }
+
+    if(!ds.length){
+      h+='<div class="empty" style="padding:24px"><p style="font-size:13px">Nenhuma compra lançada em '+getMesLabel(mes)+'.</p></div>';
+    } else {
+      h+='<table><thead><tr><th>Descrição</th><th>Categoria</th><th class="td-right">Valor</th><th></th></tr></thead><tbody>';
+      ds.forEach(d=>{
+        h+='<tr>'+
+          '<td>'+d.desc+(d.totalParcelas?'<span style="margin-left:6px;padding:1px 6px;background:var(--blue-light);color:var(--blue);border-radius:10px;font-size:10px;font-weight:600;font-family:var(--mono)">'+d.parcela+'/'+d.totalParcelas+'</span>':'')+'</td>'+
+          '<td style="color:var(--text2)">'+(d.cat||'Outros')+'</td>'+
+          '<td class="td-right td-mono">'+fmt(d.valor)+'</td>'+
+          '<td class="td-right" style="white-space:nowrap">'+
+            '<button onclick="editarDespesaCartao(\'' +c.id+ '\',\'' +d.id+ '\')" style="background:none;border:none;cursor:pointer;color:var(--blue);padding:2px 4px" title="Editar"><i class="ti ti-pencil"></i></button>'+
+            '<button onclick="excluirDespesaCartao(\'' +d.id+ '\')" style="background:none;border:none;cursor:pointer;color:var(--accent2);padding:2px 4px" title="Excluir"><i class="ti ti-trash"></i></button>'+
+          '</td></tr>';
+      });
+      const cats=Object.entries(porCat).sort((a,b)=>b[1]-a[1]);
+      h+='<tr style="background:var(--surface2);font-weight:600"><td colspan="2">TOTAL DA FATURA</td>'+
+        '<td class="td-right td-mono">'+fmt(total)+'</td><td></td></tr>';
+      h+='</tbody></table>';
+      if(cats.length>1){
+        h+='<div style="padding:10px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap">'+
+          cats.map(([k,v])=>'<span>'+k+': <strong class="td-mono">'+fmt(v)+'</strong></span>').join('')+'</div>';
+      }
+    }
+    h+='</div>';
+  }
+
+  h+='<div style="padding:12px 16px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.8">'+
+    '<strong>Como funciona:</strong> cada compra fica registrada aqui, no cartão. '+
+    'A soma das compras do mês vira <strong>um único lançamento</strong> em Contas a Pagar, com o vencimento do cartão. '+
+    'Compras parceladas se espalham sozinhas pelos meses seguintes. '+
+    'Depois de importar ou lançar compras, clique em <strong>Sincronizar faturas</strong> para atualizar o A Pagar.'+
+  '</div>';
+
+  document.getElementById('content').innerHTML=h;
+}
+
+async function sincronizarTodasFaturas(){
+  const cartoes=await getCartoes();
+  const mes=currentMes;
+  if(!cartoes.length){showToast('Nenhum cartão cadastrado.');return;}
+  showToast('Sincronizando faturas...',5000);
+  const res=[];
+  try{
+    for(const c of cartoes){
+      const r=await sincronizarFatura(c,mes);
+      res.push(c.nome+': '+r.acao);
+    }
+  }catch(e){ showToast('Falha ao sincronizar: '+(e.message||e),9000); return; }
+  showToast('Faturas sincronizadas com A Pagar.');
+  render();
+}
+
+let _cartaoEditando=null, _cartaoDespesaCtx=null;
+
+async function editarCartao(id){
+  _cartaoEditando=id||null;
+  const btnDel=document.getElementById('ct-btn-excluir');
+  if(id){
+    const cs=await getCartoes();
+    const c=cs.find(x=>x.id===id);
+    if(!c){showToast('Cartão não encontrado.');return;}
+    document.getElementById('cartao-modal-titulo').innerHTML='<i class="ti ti-credit-card"></i> Editar cartão';
+    document.getElementById('ct-nome').value=c.nome;
+    document.getElementById('ct-bandeira').value=c.bandeira||'';
+    document.getElementById('ct-limite').value=c.limite||'';
+    document.getElementById('ct-fechamento').value=c.diaFechamento||'';
+    document.getElementById('ct-vencimento').value=c.diaVencimento||'';
+    btnDel.style.display='';
+  } else {
+    document.getElementById('cartao-modal-titulo').innerHTML='<i class="ti ti-credit-card"></i> Novo cartão';
+    ['ct-nome','ct-bandeira','ct-limite','ct-fechamento','ct-vencimento'].forEach(k=>document.getElementById(k).value='');
+    btnDel.style.display='none';
+  }
+  document.getElementById('modal-cartao').classList.add('open');
+}
+
+async function salvarCartao(){
+  const nome=(document.getElementById('ct-nome').value||'').trim();
+  if(!nome){showToast('Informe o nome do cartão.');return;}
+  const fech=parseInt(document.getElementById('ct-fechamento').value)||1;
+  const venc=parseInt(document.getElementById('ct-vencimento').value)||10;
+  if(fech<1||fech>31||venc<1||venc>31){showToast('Os dias precisam estar entre 1 e 31.');return;}
+  await saveCartao({
+    id:_cartaoEditando||genId(), nome,
+    bandeira:(document.getElementById('ct-bandeira').value||'').trim(),
+    limite:parseFloat(document.getElementById('ct-limite').value)||0,
+    diaFechamento:fech, diaVencimento:venc
+  });
+  closeModal('modal-cartao');
+  showToast(_cartaoEditando?'Cartão atualizado.':'Cartão cadastrado.');
+  _cartaoEditando=null;
+  render();
+}
+
+async function excluirCartao(){
+  if(!_cartaoEditando)return;
+  const cs=await getCartoes();
+  const c=cs.find(x=>x.id===_cartaoEditando);
+  const ds=(await getDespesasCartao()).filter(d=>d.cartaoId===_cartaoEditando);
+  if(!confirm('Excluir o cartão '+(c?c.nome:'')+'?\n\n'+ds.length+' lançamento(s) de compra serão apagados.\nAs faturas já lançadas em A Pagar NÃO são removidas.\n\nEsta ação não pode ser desfeita.'))return;
+  await delCartao(_cartaoEditando);
+  closeModal('modal-cartao');
+  _cartaoEditando=null;
+  showToast('Cartão excluído.');
+  render();
+}
+
+async function editarDespesaCartao(cartaoId,despesaId){
+  _cartaoDespesaCtx={cartaoId,despesaId:despesaId||null};
+  const cats=getCats('pagar');
+  const sel=document.getElementById('dc-cat');
+  sel.innerHTML=cats.map(c=>'<option value="'+c+'">'+c+'</option>').join('');
+  if(despesaId){
+    const d=(await getDespesasCartao()).find(x=>x.id===despesaId);
+    if(!d){showToast('Lançamento não encontrado.');return;}
+    document.getElementById('dc-titulo').innerHTML='<i class="ti ti-shopping-cart"></i> Editar compra';
+    document.getElementById('dc-desc').value=d.desc;
+    document.getElementById('dc-valor').value=d.valor;
+    document.getElementById('dc-cat').value=d.cat||'Outros';
+    document.getElementById('dc-parcela').value=d.parcela||'';
+    document.getElementById('dc-total').value=d.totalParcelas||'';
+  } else {
+    document.getElementById('dc-titulo').innerHTML='<i class="ti ti-shopping-cart"></i> Lançar compra';
+    ['dc-desc','dc-valor','dc-parcela','dc-total'].forEach(k=>document.getElementById(k).value='');
+  }
+  document.getElementById('modal-despesa-cartao').classList.add('open');
+}
+
+async function salvarDespesaCartao(){
+  if(!_cartaoDespesaCtx)return;
+  const desc=(document.getElementById('dc-desc').value||'').trim();
+  const valor=parseFloat(document.getElementById('dc-valor').value);
+  if(!desc){showToast('Informe a descrição.');return;}
+  if(isNaN(valor)||valor<=0){showToast('Informe um valor válido.');return;}
+  const pa=parseInt(document.getElementById('dc-parcela').value)||null;
+  const pt=parseInt(document.getElementById('dc-total').value)||null;
+  if((pa&&!pt)||(pt&&!pa)){showToast('Preencha a parcela e o total, ou deixe os dois vazios.');return;}
+  if(pa&&pt&&pa>pt){showToast('A parcela não pode ser maior que o total.');return;}
+
+  const {cartaoId,despesaId}=_cartaoDespesaCtx;
+  const existente=despesaId?(await getDespesasCartao()).find(x=>x.id===despesaId):null;
+
+  const d={
+    id:despesaId||genId(), cartaoId, mes:currentMes, desc, valor,
+    cat:document.getElementById('dc-cat').value,
+    parcela:pa, totalParcelas:pt,
+    serie:existente?existente.serie:null
+  };
+  await saveDespesaCartao(d);
+  let novas=0;
+  if(pa&&pt&&!despesaId){ novas=await propagarParcelas(d); }
+
+  const cartoes=await getCartoes();
+  const c=cartoes.find(x=>x.id===cartaoId);
+  if(c)await sincronizarFatura(c,currentMes);
+
+  closeModal('modal-despesa-cartao');
+  _cartaoDespesaCtx=null;
+  showToast(novas?('Compra salva — '+novas+' parcela(s) futura(s) criada(s).'):'Compra salva.');
+  render();
+}
+
+async function excluirDespesaCartao(id){
+  const todas=await getDespesasCartao();
+  const d=todas.find(x=>x.id===id);
+  if(!d){showToast('Lançamento não encontrado.');return;}
+  let msg='Excluir "'+d.desc+'" ('+fmt(d.valor)+')?';
+  const futuras=d.serie?todas.filter(x=>x.serie===d.serie&&x.mes>d.mes):[];
+  if(futuras.length)msg+='\n\nExistem '+futuras.length+' parcela(s) desta compra nos meses seguintes. Elas também serão excluídas.';
+  if(!confirm(msg))return;
+  await delDespesaCartao(id);
+  if(futuras.length){ for(const f of futuras){ await delDespesaCartao(f.id); } }
+  const c=(await getCartoes()).find(x=>x.id===d.cartaoId);
+  if(c)await sincronizarFatura(c,d.mes);
+  showToast('Compra excluída.');
+  render();
+}
+
+async function abrirImportarCartao(cartaoId){
+  _cartaoDespesaCtx={cartaoId,despesaId:null};
+  const c=(await getCartoes()).find(x=>x.id===cartaoId);
+  document.getElementById('ic-titulo').innerHTML='<i class="ti ti-file-import"></i> Importar fatura — '+(c?c.nome:'');
+  document.getElementById('ic-texto').value='';
+  document.getElementById('ic-preview').innerHTML='';
+  _cartaoPendentes=[];
+  document.getElementById('modal-importar-cartao').classList.add('open');
+}
+
+function categorizarCompra(desc){
+  const d=desc.toLowerCase();
+  const regras=[
+    [/posto|combust|ipiranga|shell|petrob|br mania/,'Combustível'],
+    [/uber|99|taxi|estacion/,'Transporte'],
+    [/restaurante|ifood|lanch|padaria|rest |food/,'Alimentação'],
+    [/mercado|supermerc|angeloni|carrefour|atacad/,'Alimentação'],
+    [/papelaria|escritorio|kalunga|material/,'Material de escritório'],
+    [/software|assinatura|google|microsoft|adobe|autodesk|zoom|dropbox/,'Software / licenças'],
+    [/hotel|passagem|azul|gol|latam|airbnb/,'Viagens'],
+    [/correio|sedex|transport|frete/,'Fretes e correios'],
+    [/energia|celesc|agua|casan|telefon|vivo|claro|tim|internet/,'Aluguel / utilities'],
+  ];
+  for(const [re,cat] of regras){ if(re.test(d))return cat; }
+  return 'Outros';
+}
+
+function lerFaturaColada(){
+  const txt=document.getElementById('ic-texto').value||'';
+  const linhas=txt.split('\n').map(l=>l.trim()).filter(Boolean);
+  _cartaoPendentes=[];
+  const cats=getCats('pagar');
+
+  linhas.forEach(l=>{
+    const limpa=l.replace(/;/g,' ').replace(/\t/g,' ');
+    const nums=limpa.match(/-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+[.,]\d{2}|-?\d+/g);
+    if(!nums)return;
+    const ult=nums[nums.length-1];
+    const valor=parseFloat(String(ult).replace(/\./g,'').replace(',','.'));
+    if(!valor||isNaN(valor))return;
+    let desc=limpa.slice(0,limpa.lastIndexOf(ult)).trim().replace(/[-–—|]+$/,'').trim();
+    desc=desc.replace(/^\d{2}[\/.]\d{2}([\/.]\d{2,4})?\s*/,'').trim();
+    if(!desc)desc='(sem descrição)';
+    const pm=desc.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
+    let cat=categorizarCompra(desc);
+    if(!cats.includes(cat))cat='Outros';
+    _cartaoPendentes.push({
+      id:genId(), desc, valor, cat,
+      parcela:pm?parseInt(pm[1]):null,
+      totalParcelas:pm?parseInt(pm[2]):null
+    });
+  });
+
+  const box=document.getElementById('ic-preview');
+  if(!_cartaoPendentes.length){
+    box.innerHTML='<div style="padding:10px 12px;background:#FDECEA;border:1px solid var(--accent2);border-radius:8px;font-size:12px;color:var(--accent2)">'+
+      'Não encontrei valores nessas linhas. Cada linha precisa terminar com um número, como "MERCADO 342,80".</div>';
+    return;
+  }
+  const tot=_cartaoPendentes.reduce((s2,p)=>s2+p.valor,0);
+  let h='<div style="font-size:12px;color:var(--text2);margin-bottom:8px">'+
+    '<strong>'+_cartaoPendentes.length+'</strong> linha(s) reconhecida(s) &middot; total '+fmt(tot)+
+    '<br><span style="font-size:11px;color:var(--text3)">Confira as categorias antes de salvar.</span></div>'+
+    '<div style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">'+
+    '<table style="font-size:12px"><tbody>';
+  _cartaoPendentes.forEach((p,i)=>{
+    h+='<tr>'+
+      '<td style="padding:6px 8px">'+p.desc+
+        (p.totalParcelas?'<span style="margin-left:5px;padding:1px 5px;background:var(--blue-light);color:var(--blue);border-radius:8px;font-size:10px;font-weight:600">'+p.parcela+'/'+p.totalParcelas+'</span>':'')+'</td>'+
+      '<td style="padding:6px 8px"><select onchange="_cartaoPendentes['+i+'].cat=this.value" style="padding:2px 4px;border:1px solid var(--border);border-radius:5px;font-size:11px;max-width:150px">'+
+        cats.map(c=>'<option '+(p.cat===c?'selected':'')+'>'+c+'</option>').join('')+'</select></td>'+
+      '<td class="td-mono" style="padding:6px 8px;text-align:right;white-space:nowrap">'+fmt(p.valor)+'</td>'+
+      '<td style="padding:6px 8px;text-align:right"><button onclick="_cartaoPendentes.splice('+i+',1);lerFaturaColadaRefresh()" style="background:none;border:none;cursor:pointer;color:var(--accent2)" title="Remover"><i class="ti ti-x"></i></button></td>'+
+    '</tr>';
+  });
+  h+='</tbody></table></div>'+
+    '<div style="display:flex;gap:8px;margin-top:12px">'+
+    '<button class="btn primary" onclick="confirmarImportacaoCartao()" style="flex:1"><i class="ti ti-check"></i> Salvar '+_cartaoPendentes.length+' lançamento(s)</button></div>';
+  box.innerHTML=h;
+}
+
+function lerFaturaColadaRefresh(){
+  const guard=_cartaoPendentes.slice();
+  const box=document.getElementById('ic-preview');
+  if(!guard.length){ box.innerHTML=''; return; }
+  // redesenha usando os pendentes atuais, sem reler o texto
+  const cats=getCats('pagar');
+  const tot=guard.reduce((s2,p)=>s2+p.valor,0);
+  let h='<div style="font-size:12px;color:var(--text2);margin-bottom:8px">'+
+    '<strong>'+guard.length+'</strong> linha(s) &middot; total '+fmt(tot)+'</div>'+
+    '<div style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">'+
+    '<table style="font-size:12px"><tbody>';
+  guard.forEach((p,i)=>{
+    h+='<tr><td style="padding:6px 8px">'+p.desc+
+      (p.totalParcelas?'<span style="margin-left:5px;padding:1px 5px;background:var(--blue-light);color:var(--blue);border-radius:8px;font-size:10px;font-weight:600">'+p.parcela+'/'+p.totalParcelas+'</span>':'')+'</td>'+
+      '<td style="padding:6px 8px"><select onchange="_cartaoPendentes['+i+'].cat=this.value" style="padding:2px 4px;border:1px solid var(--border);border-radius:5px;font-size:11px;max-width:150px">'+
+      cats.map(c=>'<option '+(p.cat===c?'selected':'')+'>'+c+'</option>').join('')+'</select></td>'+
+      '<td class="td-mono" style="padding:6px 8px;text-align:right;white-space:nowrap">'+fmt(p.valor)+'</td>'+
+      '<td style="padding:6px 8px;text-align:right"><button onclick="_cartaoPendentes.splice('+i+',1);lerFaturaColadaRefresh()" style="background:none;border:none;cursor:pointer;color:var(--accent2)"><i class="ti ti-x"></i></button></td></tr>';
+  });
+  h+='</tbody></table></div><div style="display:flex;gap:8px;margin-top:12px">'+
+    '<button class="btn primary" onclick="confirmarImportacaoCartao()" style="flex:1"><i class="ti ti-check"></i> Salvar '+guard.length+' lançamento(s)</button></div>';
+  box.innerHTML=h;
+}
+
+async function confirmarImportacaoCartao(){
+  if(!_cartaoDespesaCtx||!_cartaoPendentes.length)return;
+  const cartaoId=_cartaoDespesaCtx.cartaoId;
+  const tot=_cartaoPendentes.reduce((s2,p)=>s2+p.valor,0);
+  if(!confirm('Salvar '+_cartaoPendentes.length+' lançamento(s), somando '+fmt(tot)+'?\n\nA fatura deste mês será atualizada em Contas a Pagar.'))return;
+
+  showToast('Salvando lançamentos...',6000);
+  let futuras=0;
+  try{
+    for(const p of _cartaoPendentes){
+      const d={id:p.id, cartaoId, mes:currentMes, desc:p.desc, valor:p.valor,
+        cat:p.cat, parcela:p.parcela, totalParcelas:p.totalParcelas, serie:null};
+      await saveDespesaCartao(d);
+      if(p.parcela&&p.totalParcelas){ futuras+=await propagarParcelas(d); }
+    }
+    const c=(await getCartoes()).find(x=>x.id===cartaoId);
+    if(c)await sincronizarFatura(c,currentMes);
+  }catch(e){
+    showToast('Falha ao importar: '+(e.message||e),9000);
+    return;
+  }
+  closeModal('modal-importar-cartao');
+  _cartaoPendentes=[];
+  showToast(futuras?('Importado — '+futuras+' parcela(s) futura(s) criada(s).'):'Fatura importada.');
+  render();
 }
 
 /* ========== COMISSÕES ========== */
