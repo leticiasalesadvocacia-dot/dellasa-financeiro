@@ -3841,6 +3841,11 @@ async function renderCartoes(all){
     const ref='cart|'+c.id+'|'+mes;
     const lanc=(all||[]).find(x=>x.cartao_ref===ref);
     const emDia=lanc&&Math.abs((parseFloat(lanc.valor)||0)-total)<0.005;
+
+    // quantos meses têm compras e quantos já têm fatura lançada em A Pagar
+    const mesesCartao=[...new Set(despesas.filter(d=>d.cartaoId===c.id).map(d=>d.mes))].sort();
+    const mesesLancados=mesesCartao.filter(m2=>(all||[]).some(x=>x.cartao_ref==='cart|'+c.id+'|'+m2)).length;
+    const faltam=mesesCartao.length-mesesLancados;
     const pctLimite=c.limite>0?Math.min(100,Math.round(total/c.limite*100)):0;
 
     const porCat={};
@@ -3852,6 +3857,10 @@ async function renderCartoes(all){
           '<div class="table-title">'+c.nome+(c.bandeira?' <span style="font-weight:400;color:var(--text3);font-size:12px">'+c.bandeira+'</span>':'')+'</div>'+
           '<div style="font-size:11px;color:var(--text3);margin-top:2px">fecha dia '+c.diaFechamento+' &middot; vence dia '+c.diaVencimento+
             (c.limite>0?' &middot; limite '+fmt(c.limite):'')+'</div>'+
+          '<div style="font-size:11px;margin-top:3px;color:'+(faltam?'#9C5700':'var(--accent)')+'">'+
+            '<i class="ti ti-'+(faltam?'alert-circle':'check')+'"></i> '+
+            mesesLancados+' de '+mesesCartao.length+' mês(es) com fatura lançada em A Pagar'+
+            (faltam?' — faltam '+faltam+', clique em Lançar / atualizar':'')+'</div>'+
         '</div>'+
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
           '<div style="text-align:right">'+
