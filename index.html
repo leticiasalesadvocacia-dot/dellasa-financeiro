@@ -3776,6 +3776,28 @@ async function sincronizarFatura(cartao,mes,silencioso){
   return {acao:'atualizado',total};
 }
 
+// todos os meses em que este cartão tem compras lançadas
+async function mesesComDespesas(cartaoId){
+  const todas=await getDespesasCartao();
+  const ms=[...new Set(todas.filter(d=>d.cartaoId===cartaoId).map(d=>d.mes))];
+  return ms.sort();
+}
+
+// gera/atualiza a fatura de TODOS os meses do cartão (inclusive os futuros)
+async function sincronizarCartaoTodosMeses(cartao){
+  const meses=await mesesComDespesas(cartao.id);
+  const r={criados:0,atualizados:0,ok:0,pagos:0,removidos:0,meses:meses.length};
+  for(const m of meses){
+    const res=await sincronizarFatura(cartao,m);
+    if(res.acao==='criado')r.criados++;
+    else if(res.acao==='atualizado')r.atualizados++;
+    else if(res.acao==='pago')r.pagos++;
+    else if(res.acao==='removido')r.removidos++;
+    else r.ok++;
+  }
+  return r;
+}
+
 async function renderCartoes(all){
   const cartoes=await getCartoes();
   const despesas=await getDespesasCartao();
@@ -3809,7 +3831,7 @@ async function renderCartoes(all){
 
   h+='<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:14px">'+
     '<button class="btn" onclick="editarCartao()" style="padding:5px 10px;font-size:12px"><i class="ti ti-plus"></i> Novo cartão</button>'+
-    '<button class="btn primary" onclick="sincronizarTodasFaturas()" style="padding:5px 10px;font-size:12px"><i class="ti ti-refresh"></i> Sincronizar faturas com A Pagar</button>'+
+    '<button class="btn primary" onclick="sincronizarTodasFaturas()" style="padding:5px 10px;font-size:12px"><i class="ti ti-refresh"></i> Lançar / atualizar faturas em A Pagar</button>'+
   '</div>';
 
   for(const c of cartoes){
@@ -3882,7 +3904,8 @@ async function renderCartoes(all){
     '<strong>Como funciona:</strong> cada compra fica registrada aqui, no cartão. '+
     'A soma das compras do mês vira <strong>um único lançamento</strong> em Contas a Pagar, com o vencimento do cartão. '+
     'Compras parceladas se espalham sozinhas pelos meses seguintes. '+
-    'Depois de importar ou lançar compras, clique em <strong>Sincronizar faturas</strong> para atualizar o A Pagar.'+
+    'As faturas de <strong>todos os meses</strong> — inclusive as futuras, geradas pelas parcelas — são lançadas automaticamente em Contas a Pagar, '+
+    'para que apareçam no fluxo de caixa e nas previsões. O valor é sempre a soma das compras daquele mês.'+
   '</div>';
 
   document.getElementById('content').innerHTML=h;
@@ -3890,17 +3913,24 @@ async function renderCartoes(all){
 
 async function sincronizarTodasFaturas(){
   const cartoes=await getCartoes();
-  const mes=currentMes;
   if(!cartoes.length){showToast('Nenhum cartão cadastrado.');return;}
-  showToast('Sincronizando faturas...',5000);
-  const res=[];
+  showToast('Sincronizando todas as faturas, inclusive as futuras...',8000);
+  let criados=0,atualizados=0,pagos=0,removidos=0,meses=0;
   try{
     for(const c of cartoes){
-      const r=await sincronizarFatura(c,mes);
-      res.push(c.nome+': '+r.acao);
+      const r=await sincronizarCartaoTodosMeses(c);
+      criados+=r.criados; atualizados+=r.atualizados;
+      pagos+=r.pagos; removidos+=r.removidos; meses+=r.meses;
     }
-  }catch(e){ showToast('Falha ao sincronizar: '+(e.message||e),9000); return; }
-  showToast('Faturas sincronizadas com A Pagar.');
+  }catch(e){ showToast('Falha ao sincronizar: '+(e.message||e),9000); render(); return; }
+  const partes=[];
+  if(criados)partes.push(criados+' fatura(s) criada(s)');
+  if(atualizados)partes.push(atualizados+' atualizada(s)');
+  if(removidos)partes.push(removidos+' removida(s)');
+  if(!partes.length)partes.push('tudo já estava em dia');
+  let msg='A Pagar: '+partes.join(', ')+'.';
+  if(pagos)msg+=' '+pagos+' já paga(s), não alterada(s).';
+  showToast(msg,7000);
   render();
 }
 
@@ -4006,7 +4036,7 @@ async function salvarDespesaCartao(){
 
   const cartoes=await getCartoes();
   const c=cartoes.find(x=>x.id===cartaoId);
-  if(c)await sincronizarFatura(c,currentMes);
+  if(c)await sincronizarCartaoTodosMeses(c);
 
   closeModal('modal-despesa-cartao');
   _cartaoDespesaCtx=null;
@@ -4025,7 +4055,7 @@ async function excluirDespesaCartao(id){
   await delDespesaCartao(id);
   if(futuras.length){ for(const f of futuras){ await delDespesaCartao(f.id); } }
   const c=(await getCartoes()).find(x=>x.id===d.cartaoId);
-  if(c)await sincronizarFatura(c,d.mes);
+  if(c)await sincronizarCartaoTodosMeses(c);
   showToast('Compra excluída.');
   render();
 }
@@ -4070,8 +4100,12 @@ function lerFaturaColada(){
     const ult=nums[nums.length-1];
     const valor=parseFloat(String(ult).replace(/\./g,'').replace(',','.'));
     if(!valor||isNaN(valor))return;
-    let desc=limpa.slice(0,limpa.lastIndexOf(ult)).trim().replace(/[-–—|]+$/,'').trim();
+    let desc=limpa.slice(0,limpa.lastIndexOf(ult)).trim();
+    desc=desc.replace(/[-–—|]+$/,'').trim();
+    desc=desc.replace(/\bR\$\s*$/i,'').trim();          // "R$" sobrando no fim
+    desc=desc.replace(/[-–—|]+$/,'').trim();
     desc=desc.replace(/^\d{2}[\/.]\d{2}([\/.]\d{2,4})?\s*/,'').trim();
+    desc=desc.replace(/\s{2,}/g,' ');
     if(!desc)desc='(sem descrição)';
     const pm=desc.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
     let cat=categorizarCompra(desc);
@@ -4151,7 +4185,7 @@ async function confirmarImportacaoCartao(){
       if(p.parcela&&p.totalParcelas){ futuras+=await propagarParcelas(d); }
     }
     const c=(await getCartoes()).find(x=>x.id===cartaoId);
-    if(c)await sincronizarFatura(c,currentMes);
+    if(c)await sincronizarCartaoTodosMeses(c);
   }catch(e){
     showToast('Falha ao importar: '+(e.message||e),9000);
     return;
