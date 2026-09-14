@@ -1060,9 +1060,26 @@ const db = async (action, table, data=null, query=null) => {
 // Cache local para performance
 let _cache = null;
 let _cacheOrcs = null;
+let _cacheGen = 0;
 
 async function getData() {
   if (_cache) return _cache;
+  // Se o cache for invalidado enquanto esta busca esta no ar, o resultado
+  // chegou velho: nao grava e refaz. Era isso que fazia parcela recem-criada
+  // sumir da tela ate dar F5.
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const gen = _cacheGen;
+    const rows = await db('select', 'lancamentos', null, 'select=*&order=venc.asc');
+    const dados = Array.isArray(rows) ? rows.map(dbToLocal) : [];
+    if (gen === _cacheGen) {
+      if (dados.length >= 1000) {
+        console.warn('Atencao: ' + dados.length + ' lancamentos carregados. Perto do limite do Supabase.');
+        if (typeof showToast === 'function') showToast('Atencao: o banco chegou a ' + dados.length + ' lancamentos. Avise o Claude para paginar a carga.', 9000);
+      }
+      _cache = dados;
+      return _cache;
+    }
+  }
   const rows = await db('select', 'lancamentos', null, 'select=*&order=venc.asc');
   _cache = Array.isArray(rows) ? rows.map(dbToLocal) : [];
   return _cache;
@@ -1075,7 +1092,7 @@ async function getOrcsData() {
   return _cacheOrcs;
 }
 
-function invalidateCache() { _cache = null; _cacheOrcs = null; }
+function invalidateCache() { _cacheGen++; _cache = null; _cacheOrcs = null; }
 
 // Mapear campos locais ↔ banco
 function localToDb(item) {
@@ -1527,11 +1544,11 @@ async function salvarLancamento(){
       const vencP=addDias(venc,i*intervalo);
       const elVal=document.getElementById('pval-'+i);
       const valParcela=elVal?parseFloat(elVal.value)||0:valor/n;
-      addItem({...base,id:genId(),valor:valParcela,venc:vencP,mes:vencP.slice(0,7),
+      await addItem({...base,id:genId(),valor:valParcela,venc:vencP,mes:vencP.slice(0,7),
         desconto:0,juros:0,multa:0,
         desc:`${desc} (${i+1}/${n})`,grupoId,parcela:i+1,totalParcelas:n,status:'pendente'});
     }
-    closeModal('modal-add');showToast(`${n} parcelas criadas.`);render();return;
+    closeModal('modal-add');showToast(`${n} parcelas criadas.`);await render();return;
   }
   if(recorrente&&!editingId){
     const nMeses=parseInt(document.getElementById('f-rec-meses').value)||11;
@@ -1539,12 +1556,12 @@ async function salvarLancamento(){
     for(let i=0;i<=nMeses;i++){
       const d=new Date(venc+'T12:00:00');d.setMonth(d.getMonth()+i);
       const vencR=d.toISOString().slice(0,10);
-      addItem({...base,id:genId(),valor,venc:vencR,mes:vencR.slice(0,7),
+      await addItem({...base,id:genId(),valor,venc:vencR,mes:vencR.slice(0,7),
         desconto:0,juros:0,multa:0,
         status:'pendente',grupoRecId,recorrencia:i+1,totalRecorrencias:nMeses+1,
         desc:`${desc}`});
     }
-    closeModal('modal-add');showToast(`${nMeses+1} lançamentos recorrentes criados.`);render();return;
+    closeModal('modal-add');showToast(`${nMeses+1} lançamentos recorrentes criados.`);await render();return;
   }
   const item={...base,id:editingId||genId(),mes:venc.slice(0,7)};
   if(editingId){
@@ -1557,9 +1574,9 @@ async function salvarLancamento(){
     }
     await updateItem(editingId,item);
   } else {
-    addItem(item);
+    await addItem(item);
   }
-  closeModal('modal-add');showToast(editingId?'Atualizado.':'Salvo.');render();
+  closeModal('modal-add');showToast(editingId?'Atualizado.':'Salvo.');await render();
 }
 
 // === PARCELAR UM LANÇAMENTO JÁ EXISTENTE ===
@@ -1591,8 +1608,9 @@ async function parcelarExistente(base,venc,valor,desc){
     'Soma das parcelas: '+fmt(somaParcelas)+'\n'+
     'Primeiro vencimento: '+fmtDate(venc)+' — a cada '+intervalo+' dias\n\n'+
     'O lançamento original vira a parcela 1/'+n+' e as outras '+(n-1)+' serão criadas.';
-  if(Math.abs(somaParcelas-valor)>0.01){
-    msg+='\n\nATENÇÃO: a soma das parcelas ('+fmt(somaParcelas)+') é diferente do valor informado ('+fmt(valor)+').';
+  if(Math.abs(somaParcelas-orig.valor)>0.01){
+    msg+='\n\nATENÇÃO: a soma das parcelas ('+fmt(somaParcelas)+') é diferente do valor atual do título ('+fmt(orig.valor)+').'+
+         '\nDiferença de '+fmt(Math.abs(somaParcelas-orig.valor))+'. Confira antes de confirmar.';
   }
   if(jaEmGrupo){
     msg+='\n\nATENÇÃO: este lançamento já faz parte de um grupo. Ele será desvinculado e passará a integrar um novo parcelamento.';
@@ -1615,7 +1633,7 @@ async function parcelarExistente(base,venc,valor,desc){
 
   for(let i=1;i<n;i++){
     const vencP=addDias(venc,i*intervalo);
-    addItem({...base,id:genId(),
+    await addItem({...base,id:genId(),
       desc:descBase+' ('+(i+1)+'/'+n+')',
       valor:valores[i],venc:vencP,mes:vencP.slice(0,7),
       desconto:0,juros:0,multa:0,
@@ -1623,8 +1641,8 @@ async function parcelarExistente(base,venc,valor,desc){
   }
 
   closeModal('modal-add');
-  showToast('Lançamento dividido em '+n+' parcelas.');
-  render();
+  showToast('Lançamento dividido em '+n+' parcelas — total '+fmt(somaParcelas)+'.');
+  await render();
 }
 
 // === ESCOPO DA EDIÇÃO EM LANÇAMENTOS RECORRENTES / PARCELADOS ===
