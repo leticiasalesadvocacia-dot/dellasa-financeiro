@@ -5296,7 +5296,13 @@ async function gerarRelatorio(){
     if(c4&&r0.depCats.length){if(c4._ch)c4._ch.destroy();c4._ch=new Chart(c4,{type:'doughnut',data:{labels:r0.depCats.map(x=>x[0]),datasets:[{data:r0.depCats.map(x=>x[1]),backgroundColor:colors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'right',labels:{font:{size:9},boxWidth:8,padding:5}}}}});}
   },50);
   const metas=await getMetas();
-  const resumo=montarResumoLocal(r0,mes,metas,[prev1,prev2].filter(Boolean).map(m=>({mes:m,r:buildResumoMes(all,m)})));
+  const saldos=await getSaldos();
+  const saldoConta=(saldos[mes]!==undefined&&saldos[mes]!==null)?(parseFloat(saldos[mes])||0):null;
+  // Projeção de caixa: todos os meses entre o mês do relatório e o último mês de previsão (sem pular meses)
+  const ultimoPrev=[prev1,prev2].filter(Boolean).sort().pop()||null;
+  const mesesProj=[];
+  if(ultimoPrev&&ultimoPrev>mes){let m=proxMes(mes,1);let guard=0;while(m<=ultimoPrev&&guard<36){mesesProj.push({mes:m,r:buildResumoMes(all,m)});m=proxMes(m,1);guard++;}}
+  const resumo=montarResumoLocal(r0,mes,metas,[prev1,prev2].filter(Boolean).map(m=>({mes:m,r:buildResumoMes(all,m)})),{saldoConta,meses:mesesProj});
   document.getElementById('rel-loading').style.display='none';
   document.getElementById('rel-output').style.display='block';
   document.getElementById('rel-titulo').textContent='Relatório — '+getMesLabel(mes)+(prev1?' + previsão '+getMesLabel(prev1):'')+(prev2?' + '+getMesLabel(prev2):'');
@@ -5307,7 +5313,7 @@ async function gerarRelatorio(){
   document.querySelectorAll('#rel-analise p').forEach(p=>{p.style.cssText='color:var(--text2);line-height:1.8;margin-bottom:8px';});
 }
 
-function montarResumoLocal(r0,mes,metas,previsoes){
+function montarResumoLocal(r0,mes,metas,previsoes,proj){
   const meta=metas[mes]||0;
   const pctMeta=meta>0?(r0.tRec/meta*100):0;
   const li=(t)=>'<li>'+t+'</li>';
@@ -5343,8 +5349,29 @@ function montarResumoLocal(r0,mes,metas,previsoes){
     previsoes.forEach(pv=>{
       h+=li('<strong>'+getMesLabel(pv.mes)+'</strong> — receitas '+fmt(pv.r.tRec)+', despesas '+fmt(pv.r.tDep)+', resultado <strong>'+fmt(pv.r.resultado)+'</strong>');
     });
-    const somaRes=previsoes.reduce((s2,pv)=>s2+pv.r.resultado,0);
-    h+=li('Resultado acumulado do período previsto: <strong>'+fmt(somaRes)+'</strong>');
+    h+='</ul>';
+  }
+
+  // Projeção de caixa = saldo em conta + tudo que falta receber − tudo que falta pagar, do mês do relatório até o fim da previsão
+  if(proj){
+    const cor=v=>v>=0?'#2A5C45':'#C4411A';
+    const saldoBase=proj.saldoConta||0;
+    h+='<h3>Projeção de caixa</h3><ul>';
+    if(proj.saldoConta===null){
+      h+=li('<strong style="color:#C4411A">Saldo em conta de '+getMesLabel(mes)+' não informado</strong> — preencha as contas bancárias no Dashboard e clique em “Salvar saldos”. A projeção abaixo parte de R$ 0,00.');
+    }else{
+      h+=li('Saldo em conta hoje: <strong>'+fmt(saldoBase)+'</strong>');
+    }
+    let acum=saldoBase+r0.pendRec-r0.pendPag;
+    h+=li('<strong>'+getMesLabel(mes)+'</strong> — ainda a receber '+fmt(r0.pendRec)+', ainda a pagar '+fmt(r0.pendPag)+' → saldo previsto no fim do mês <strong style="color:'+cor(acum)+'">'+fmt(acum)+'</strong>');
+    let totRec=r0.pendRec,totPag=r0.pendPag;
+    (proj.meses||[]).forEach(pm=>{
+      acum+=pm.r.pendRec-pm.r.pendPag;
+      totRec+=pm.r.pendRec;totPag+=pm.r.pendPag;
+      h+=li('<strong>'+getMesLabel(pm.mes)+'</strong> — a receber '+fmt(pm.r.pendRec)+', a pagar '+fmt(pm.r.pendPag)+' → saldo previsto no fim do mês <strong style="color:'+cor(acum)+'">'+fmt(acum)+'</strong>');
+    });
+    const ultimo=(proj.meses&&proj.meses.length)?proj.meses[proj.meses.length-1].mes:mes;
+    h+=li('<strong>Saldo final projetado em '+getMesLabel(ultimo)+': <span style="color:'+cor(acum)+'">'+fmt(acum)+'</span></strong> ('+fmt(saldoBase)+' em conta + '+fmt(totRec)+' a receber − '+fmt(totPag)+' a pagar)');
     h+='</ul>';
   }
   return h;
