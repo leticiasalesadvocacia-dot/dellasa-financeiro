@@ -1369,7 +1369,8 @@ async function getColabs(){
     id:r.id, orc_id:r.orc_id, tipo:r.tipo||'externo', nome:r.nome||'', servico:r.servico||'',
     forma:r.forma||'fixo', valor:parseFloat(r.valor)||0, pct:parseFloat(r.pct)||0,
     base_pct:r.base_pct||'liquido', desconto_modo:r.desconto_modo||'proporcional',
-    pag_modo:r.pag_modo||'acompanha', pag_data:r.pag_data||'', lanc_ref:r.lanc_ref||null
+    pag_modo:r.pag_modo||'acompanha', pag_data:r.pag_data||'', lanc_ref:r.lanc_ref||null,
+    criado_em:(r.created_at||'').slice(0,10)
   }));
   return _cacheColabs;
 }
@@ -5056,25 +5057,36 @@ async function prepararCtxComissao(all){
   Object.keys(colabsByKey).forEach(k=>{projByKey[k]=descProjetoChave(k,itensByKey[k],orcById);});
   // quanto cada colaborador de valor fixo abate de cada parcela (valor cheio da parcela)
   const dedFixa={};
+  const elegivel={}; // colabId -> {itemId:true}: parcelas que entram no desconto de cada colaborador
   const somaDed=(itemId,colabId,v)=>{(dedFixa[itemId]=dedFixa[itemId]||{});dedFixa[itemId][colabId]=(dedFixa[itemId][colabId]||0)+v;};
   Object.keys(itensByKey).forEach(k=>{
     const itens=itensByKey[k].slice().sort((a,b)=>((a.venc||'').localeCompare(b.venc||''))||((a.parcela||0)-(b.parcela||0)));
     const total=itens.reduce((s2,x)=>s2+valEf(x),0);
     const cap={};itens.forEach(x=>{cap[x.id]=valEf(x)*(1-aliqImposto(x,cfg));});
-    colabsByKey[k].filter(c=>c.forma==='fixo').forEach(c=>{
+    colabsByKey[k].forEach(c=>{
+      // o colaborador entra a partir do cadastro: parcelas já recebidas antes disso não são mexidas
+      // (se todas já foram recebidas, vale para todas — cadastro feito depois, de propósito)
+      let alvo=itens.filter(x=>{
+        if(!c.criado_em||!['recebido','parcial'].includes(x.status))return true;
+        return ((x.data_pagamento||x.venc)||'')>=c.criado_em;
+      });
+      if(!alvo.length)alvo=itens;
+      elegivel[c.id]={};alvo.forEach(x=>{elegivel[c.id][x.id]=true;});
+      if(c.forma!=='fixo')return;
+      const totalAlvo=alvo.reduce((s2,x)=>s2+valEf(x),0);
       if(c.desconto_modo==='primeiras'){
         let resta=c.valor||0;
-        itens.forEach(x=>{
+        alvo.forEach(x=>{
           const v=Math.max(0,Math.min(resta,cap[x.id]));
           if(v>0.004){somaDed(x.id,c.id,v);cap[x.id]-=v;resta-=v;}
         });
-        if(resta>0.004&&itens.length)somaDed(itens[itens.length-1].id,c.id,resta);
+        if(resta>0.004&&alvo.length)somaDed(alvo[alvo.length-1].id,c.id,resta);
       } else {
-        itens.forEach(x=>{if(total>0)somaDed(x.id,c.id,(c.valor||0)*valEf(x)/total);});
+        alvo.forEach(x=>{if(totalAlvo>0)somaDed(x.id,c.id,(c.valor||0)*valEf(x)/totalAlvo);});
       }
     });
   });
-  _comCtx={orcById,colabsByKey,projByKey,dedFixa};
+  _comCtx={orcById,colabsByKey,projByKey,dedFixa,elegivel};
   return _comCtx;
 }
 
@@ -5087,7 +5099,7 @@ function deducoesItem(item,bruto,imposto,cfg){
     const frac=cheio>0?bruto/cheio:0;
     const lista=colabs.map(c=>{
       let v;
-      if(c.forma==='pct') v=(c.base_pct==='bruto'?bruto:(bruto-imposto))*(c.pct||0);
+      if(c.forma==='pct') v=(ctx.elegivel[c.id]&&!ctx.elegivel[c.id][item.id])?0:(c.base_pct==='bruto'?bruto:(bruto-imposto))*(c.pct||0);
       else v=(((ctx.dedFixa[item.id]||{})[c.id])||0)*frac;
       return {colab:c,valor:Math.round(v*100)/100};
     }).filter(r=>r.valor>0.004);
