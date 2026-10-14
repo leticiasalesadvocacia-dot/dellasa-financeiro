@@ -375,13 +375,24 @@ if (sessionStorage.getItem('ds_auth') === '1') {
         <input type="checkbox" id="f-comissionavel" onchange="toggleComissao()" /> Este recebimento gera comissão
       </label>
       <label class="checkbox-label" id="lbl-indicacao" style="display:none;cursor:pointer;padding-left:22px">
-        <input type="checkbox" id="f-tem-indicacao" /> Teve indicação (desconta a indicação antes da comissão)
+        <input type="checkbox" id="f-tem-indicacao" /> Teve indicação sem nome (% padrão) — prefira cadastrar abaixo
       </label>
       <div id="box-imposto-pct" style="display:none;padding-left:22px">
         <label class="form-label" style="margin-bottom:4px">Alíquota do imposto (%)</label>
         <input class="form-input" id="f-imposto-pct" type="number" step="0.01" placeholder="Deixe vazio para usar o padrão" style="max-width:280px" />
         <div style="font-size:11px;color:var(--text3);margin-top:4px">Vazio = usa a alíquota padrão dos Parâmetros.</div>
       </div>
+    </div>
+    <div id="box-colabs-lanc">
+      <div class="section-divider" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <span>Indicação e colaboradores externos</span>
+        <span style="display:flex;gap:6px;text-transform:none;letter-spacing:0">
+          <button type="button" class="btn" onclick="addColab('lanc','indicacao')" style="padding:3px 9px;font-size:11px"><i class="ti ti-plus"></i> Indicação</button>
+          <button type="button" class="btn" onclick="addColab('lanc','externo')" style="padding:3px 9px;font-size:11px"><i class="ti ti-plus"></i> Colaborador</button>
+        </span>
+      </div>
+      <div id="f-colabs-escopo" style="font-size:11px;color:var(--text3);margin:-4px 0 8px"></div>
+      <div id="f-colabs-lista" style="margin-bottom:12px"></div>
     </div>
     <div id="aviso-parcelar-edicao" style="display:none;padding:9px 12px;background:#FFF8E1;border-radius:8px;border:1px solid #FFD54F;font-size:11px;color:#7B6200;margin-bottom:10px">
       <i class="ti ti-info-circle"></i> Este lançamento será <strong>dividido</strong> nas parcelas abaixo. Ele vira a parcela 1 e as demais são criadas.
@@ -975,8 +986,8 @@ if (sessionStorage.getItem('ds_auth') === '1') {
     <div class="section-divider" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <span>Indicação e colaboradores externos</span>
       <span style="display:flex;gap:6px;text-transform:none;letter-spacing:0">
-        <button type="button" class="btn" onclick="addColabOrc('indicacao')" style="padding:3px 9px;font-size:11px"><i class="ti ti-plus"></i> Indicação</button>
-        <button type="button" class="btn" onclick="addColabOrc('externo')" style="padding:3px 9px;font-size:11px"><i class="ti ti-plus"></i> Colaborador</button>
+        <button type="button" class="btn" onclick="addColab('orc','indicacao')" style="padding:3px 9px;font-size:11px"><i class="ti ti-plus"></i> Indicação</button>
+        <button type="button" class="btn" onclick="addColab('orc','externo')" style="padding:3px 9px;font-size:11px"><i class="ti ti-plus"></i> Colaborador</button>
       </span>
     </div>
     <div id="o-colabs-lista" style="margin-bottom:12px"></div>
@@ -1347,7 +1358,10 @@ async function delOrc(id) {
   invalidateCache();
 }
 
-// Indicações e colaboradores externos (vinculados a um orçamento/projeto)
+// Indicações e colaboradores externos
+// Pertencem a um orçamento (orc_id) ou, para recebimentos sem orçamento, ao próprio lançamento/parcelamento (lanc_ref)
+function chaveProjeto(x){ return x.orc_id?('o:'+x.orc_id):('l:'+(x.grupoId||x.grupoRecId||x.id)); }
+function chaveColab(c){ return c.orc_id?('o:'+c.orc_id):('l:'+c.lanc_ref); }
 async function getColabs(){
   if(_cacheColabs) return _cacheColabs;
   const rows=await db('select','orc_colaboradores',null,'select=*&order=created_at.asc');
@@ -1355,7 +1369,7 @@ async function getColabs(){
     id:r.id, orc_id:r.orc_id, tipo:r.tipo||'externo', nome:r.nome||'', servico:r.servico||'',
     forma:r.forma||'fixo', valor:parseFloat(r.valor)||0, pct:parseFloat(r.pct)||0,
     base_pct:r.base_pct||'liquido', desconto_modo:r.desconto_modo||'proporcional',
-    pag_modo:r.pag_modo||'acompanha', pag_data:r.pag_data||''
+    pag_modo:r.pag_modo||'acompanha', pag_data:r.pag_data||'', lanc_ref:r.lanc_ref||null
   }));
   return _cacheColabs;
 }
@@ -1363,7 +1377,8 @@ async function saveColab(c){
   await db('upsert','orc_colaboradores',{
     id:c.id, orc_id:c.orc_id, tipo:c.tipo, nome:c.nome, servico:c.servico||null,
     forma:c.forma, valor:c.forma==='fixo'?(c.valor||0):null, pct:c.forma==='pct'?(c.pct||0):null,
-    base_pct:c.base_pct, desconto_modo:c.desconto_modo, pag_modo:c.pag_modo, pag_data:c.pag_data||null
+    base_pct:c.base_pct, desconto_modo:c.desconto_modo, pag_modo:c.pag_modo, pag_data:c.pag_data||null,
+    lanc_ref:c.lanc_ref||null
   });
   invalidateCache();
 }
@@ -1458,6 +1473,10 @@ function openAdd(){
   document.getElementById('f-comissionavel').checked=false;
   document.getElementById('f-tem-indicacao').checked=false;
   document.getElementById('f-imposto-pct').value='';
+  _colabEd.lanc.lista=[];_colabEd.lanc.orig=[];
+  document.getElementById('f-colabs-escopo').textContent='Se parcelar, vale para todas as parcelas deste lançamento.';
+  renderColabs('lanc');
+  getComConfig().then(c=>{_comCfgOrc=c;});
   toggleComissao(); atualizarVisibilidadeComissao();
   document.getElementById('f-venc').value=currentMes+'-15';
   document.getElementById('f-status').value='pendente';
@@ -1491,6 +1510,20 @@ async function openEdit(id){
   document.getElementById('f-tem-indicacao').checked=!!item.tem_indicacao;
   document.getElementById('f-imposto-pct').value=(item.imposto_pct===null||item.imposto_pct===undefined)?'':(item.imposto_pct*100).toFixed(2).replace(/\.?0+$/,'');
   toggleComissao(); atualizarVisibilidadeComissao();
+  _comCfgOrc=await getComConfig();
+  const keyLanc=chaveProjeto(item);
+  const colabsLanc=(await getColabs()).filter(c=>chaveColab(c)===keyLanc);
+  _colabEd.lanc.lista=colabsLanc.map(c=>({...c}));
+  _colabEd.lanc.orig=colabsLanc.map(c=>c.id);
+  let escopo='Vale só para este lançamento.';
+  if(item.orc_id){
+    const o=(await getOrcs()).find(x=>x.id===item.orc_id);
+    escopo='Vale para todas as parcelas do projeto'+(o?' "'+descOrc(o)+'"':'')+' — é o mesmo cadastro do orçamento.';
+  } else if(item.grupoId||item.grupoRecId){
+    escopo='Vale para todas as parcelas deste lançamento.';
+  }
+  document.getElementById('f-colabs-escopo').textContent=escopo;
+  renderColabs('lanc');
   atualizarValorEfetivo();
   document.getElementById('f-parcelar').checked=false;
   document.getElementById('parcelas-config').style.display='none';
@@ -1516,6 +1549,8 @@ function atualizarVisibilidadeComissao(){
   const d=document.getElementById('div-comissao'), b=document.getElementById('box-comissao');
   if(d)d.style.display=mostrar?'':'none';
   if(b)b.style.display=mostrar?'flex':'none';
+  const bc=document.getElementById('box-colabs-lanc');
+  if(bc)bc.style.display=mostrar?'':'none';
   if(!mostrar){
     const c=document.getElementById('f-comissionavel');
     if(c)c.checked=false;
@@ -1602,6 +1637,15 @@ async function salvarLancamento(){
   if(!desc||!valor||!venc){showToast('Preencha descrição, valor e vencimento.');return;}
   const parcelar=document.getElementById('f-parcelar').checked;
   const recorrente=document.getElementById('f-recorrente').checked;
+  const ehReceber=document.getElementById('f-tipo').value==='receber';
+  if(ehReceber){const errC=validarColabs('lanc');if(errC){showToast(errC);return;}}
+  else {_colabEd.lanc.lista=[];_colabEd.lanc.orig=[];}
+  let msgColab='';
+  // edição comum (não é o "parcelar existente"): grava já, no projeto atual do lançamento
+  if(editingId&&!parcelar&&ehReceber){
+    const origC=(await getData()).find(x=>x.id===editingId);
+    if(origC)msgColab=await persistirColabsLanc(origC);
+  }
   const base={
     tipo:document.getElementById('f-tipo').value,desc,valor,venc,
     parte:document.getElementById('f-parte').value.trim(),
@@ -1636,7 +1680,8 @@ async function salvarLancamento(){
         desconto:0,juros:0,multa:0,
         desc:`${desc} (${i+1}/${n})`,grupoId,parcela:i+1,totalParcelas:n,status:'pendente'});
     }
-    closeModal('modal-add');showToast(`${n} parcelas criadas.`);await render();return;
+    if(ehReceber)msgColab=await persistirColabsLanc({grupoId});
+    closeModal('modal-add');showToast(`${n} parcelas criadas.`+(msgColab?' '+msgColab+'.':''),msgColab?5000:2800);await render();return;
   }
   if(recorrente&&!editingId){
     const nMeses=parseInt(document.getElementById('f-rec-meses').value)||11;
@@ -1649,7 +1694,8 @@ async function salvarLancamento(){
         status:'pendente',grupoRecId,recorrencia:i+1,totalRecorrencias:nMeses+1,
         desc:`${desc}`});
     }
-    closeModal('modal-add');showToast(`${nMeses+1} lançamentos recorrentes criados.`);await render();return;
+    if(ehReceber)msgColab=await persistirColabsLanc({grupoRecId});
+    closeModal('modal-add');showToast(`${nMeses+1} lançamentos recorrentes criados.`+(msgColab?' '+msgColab+'.':''),msgColab?5000:2800);await render();return;
   }
   const item={...base,id:editingId||genId(),mes:venc.slice(0,7)};
   if(editingId){
@@ -1663,8 +1709,9 @@ async function salvarLancamento(){
     await updateItem(editingId,item);
   } else {
     await addItem(item);
+    if(ehReceber)msgColab=await persistirColabsLanc(item);
   }
-  closeModal('modal-add');showToast(editingId?'Atualizado.':'Salvo.');await render();
+  closeModal('modal-add');showToast((editingId?'Atualizado.':'Salvo.')+(msgColab?' '+msgColab+'.':''),msgColab?5000:2800);await render();
 }
 
 // === PARCELAR UM LANÇAMENTO JÁ EXISTENTE ===
@@ -1721,13 +1768,20 @@ async function parcelarExistente(base,venc,valor,desc){
 
   for(let i=1;i<n;i++){
     const vencP=addDias(venc,i*intervalo);
-    await addItem({...base,id:genId(),
+    await addItem({...base,id:genId(),orc_id:orig.orc_id||null,
       desc:descBase+' ('+(i+1)+'/'+n+')',
       valor:valores[i],venc:vencP,mes:vencP.slice(0,7),
       desconto:0,juros:0,multa:0,
       grupoId,parcela:i+1,totalParcelas:n,status:'pendente'});
   }
 
+  if(orig.tipo==='receber'){
+    // sem orçamento, os colaboradores que eram deste lançamento passam para o novo parcelamento
+    if(!orig.orc_id){
+      for(const c of (await getColabs()).filter(c=>c.lanc_ref===orig.id&&!_colabEd.lanc.orig.includes(c.id))){ c.lanc_ref=grupoId; await saveColab(c); }
+    }
+    await persistirColabsLanc({orc_id:orig.orc_id,grupoId,id:editingId});
+  }
   closeModal('modal-add');
   showToast('Lançamento dividido em '+n+' parcelas — total '+fmt(somaParcelas)+'.');
   await render();
@@ -3239,8 +3293,8 @@ async function salvarParcial(){
 let orcFiltro='todos';
 let orcFiltroTipo='todos';
 
-let _orcColabs=[];      // indicações/colaboradores em edição no modal
-let _orcColabsOrig=[];  // ids que já existiam no banco
+// editores de indicação/colaboradores: um no modal do orçamento, outro no modal de lançamento
+const _colabEd={orc:{lista:[],orig:[],box:'o-colabs-lista'},lanc:{lista:[],orig:[],box:'f-colabs-lista'}};
 let _comCfgOrc=null;
 
 function escH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -3251,8 +3305,8 @@ async function openOrcamento(id){
   const orc=id?orcs.find(x=>x.id===id):null;
   _comCfgOrc=await getComConfig();
   const colabs=id?(await getColabs()).filter(c=>c.orc_id===id):[];
-  _orcColabs=colabs.map(c=>({...c}));
-  _orcColabsOrig=colabs.map(c=>c.id);
+  _colabEd.orc.lista=colabs.map(c=>({...c}));
+  _colabEd.orc.orig=colabs.map(c=>c.id);
   document.getElementById('modal-orc-title').textContent=id?'Editar Orçamento':'Novo Orçamento';
   document.getElementById('o-cliente').value=orc?orc.cliente:'';
   document.getElementById('o-projeto').value=orc?(orc.nome_projeto||''):'';
@@ -3266,7 +3320,7 @@ async function openOrcamento(id){
   document.getElementById('o-gera-comissao').checked=!!(orc&&orc.gera_comissao);
   document.getElementById('o-status').value=orc?orc.status:'enviado';
   document.getElementById('o-obs').value=orc?(orc.obs||''):'';
-  renderColabsOrc();
+  renderColabs('orc');
   toggleDataFechOrc();
   document.getElementById('modal-orc').classList.add('open');
 }
@@ -3294,45 +3348,56 @@ async function atualizarVinculoOrc(){
   box.style.display='flex';
 }
 
-/* ---------- indicação e colaboradores externos no modal ---------- */
-function addColabOrc(tipo){
+/* ---------- indicação e colaboradores externos (editor usado nos dois modais) ---------- */
+function addColab(ed,tipo){
   const ind=tipo==='indicacao';
-  _orcColabs.push({id:genId(),orc_id:null,tipo,nome:'',servico:'',
+  _colabEd[ed].lista.push({id:genId(),orc_id:null,lanc_ref:null,tipo,nome:'',servico:'',
     forma:ind?'pct':'fixo',valor:0,pct:ind?((_comCfgOrc&&_comCfgOrc.indicacao)||0.05):0,
     base_pct:'liquido',desconto_modo:'proporcional',pag_modo:'acompanha',pag_data:''});
-  renderColabsOrc();
+  renderColabs(ed);
 }
-function remColabOrc(i){_orcColabs.splice(i,1);renderColabsOrc();}
-function setColabOrc(i,campo,v,rerender){
-  const c=_orcColabs[i];if(!c)return;
+function remColab(ed,i){_colabEd[ed].lista.splice(i,1);renderColabs(ed);}
+function setColab(ed,i,campo,v,rerender){
+  const c=_colabEd[ed].lista[i];if(!c)return;
   if(campo==='valor')c.valor=parseFloat(v)||0;
   else if(campo==='pct')c.pct=(parseFloat(v)||0)/100;
   else c[campo]=v;
-  if(rerender)renderColabsOrc();
+  if(rerender)renderColabs(ed);
 }
-function renderColabsOrc(){
-  const box=document.getElementById('o-colabs-lista');
-  if(!_orcColabs.length){
-    box.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0">Nenhuma indicação ou colaborador externo neste projeto.</div>';
+function validarColabs(ed){
+  for(const c of _colabEd[ed].lista){
+    if(!(c.nome||'').trim())return 'Informe o nome de cada indicação/colaborador.';
+    if(c.forma==='fixo'&&!(c.valor>0))return 'Informe o valor de '+c.nome.trim()+'.';
+    if(c.forma==='pct'&&!(c.pct>0))return 'Informe o percentual de '+c.nome.trim()+'.';
+  }
+  return '';
+}
+function renderColabs(ed){
+  const lista=_colabEd[ed].lista;
+  const box=document.getElementById(_colabEd[ed].box);
+  if(!box)return;
+  if(!lista.length){
+    box.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0">Nenhuma indicação ou colaborador externo.</div>';
     return;
   }
-  const sel=(i,campo,opts,val)=>'<select class="form-select" style="padding:6px 8px;font-size:12px;width:100%" onchange="setColabOrc('+i+',\''+campo+'\',this.value,true)">'+
+  const E="'"+ed+"'";
+  const sel=(i,campo,opts,val)=>'<select class="form-select" style="padding:6px 8px;font-size:12px;width:100%" onchange="setColab('+E+','+i+',\''+campo+'\',this.value,true)">'+
     opts.map(o=>'<option value="'+o[0]+'"'+(val===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>';
   const rot=(t,html)=>'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px">'+t+'</div>'+html+'</div>';
-  box.innerHTML=_orcColabs.map((c,i)=>{
+  box.innerHTML=lista.map((c,i)=>{
     const ind=c.tipo==='indicacao';
     return '<div style="border:1px solid var(--border);border-left:3px solid '+(ind?'#B57C1A':'#1A4A7A')+';border-radius:8px;padding:10px 12px;margin-bottom:8px">'+
       '<div style="display:grid;grid-template-columns:170px 1fr auto;gap:8px;align-items:center;margin-bottom:8px">'+
         sel(i,'tipo',[['indicacao','Indicação'],['externo','Colaborador externo']],c.tipo)+
-        '<input class="form-input" style="padding:6px 8px;font-size:12px" placeholder="'+(ind?'Nome de quem indicou':'Nome do colaborador')+'" value="'+escH(c.nome)+'" oninput="setColabOrc('+i+',\'nome\',this.value)">'+
-        '<button type="button" onclick="remColabOrc('+i+')" title="Remover" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:15px"><i class="ti ti-trash"></i></button>'+
+        '<input class="form-input" style="padding:6px 8px;font-size:12px" placeholder="'+(ind?'Nome de quem indicou':'Nome do colaborador')+'" value="'+escH(c.nome)+'" oninput="setColab('+E+','+i+',\'nome\',this.value)">'+
+        '<button type="button" onclick="remColab('+E+','+i+')" title="Remover" style="background:none;border:none;cursor:pointer;color:var(--accent2);font-size:15px"><i class="ti ti-trash"></i></button>'+
       '</div>'+
-      '<input class="form-input" style="padding:6px 8px;font-size:12px;margin-bottom:8px" placeholder="'+(ind?'Observação (opcional)':'Serviço realizado (ex: modelagem, compatibilização…)')+'" value="'+escH(c.servico)+'" oninput="setColabOrc('+i+',\'servico\',this.value)">'+
+      '<input class="form-input" style="padding:6px 8px;font-size:12px;margin-bottom:8px" placeholder="'+(ind?'Observação (opcional)':'Serviço realizado (ex: modelagem, compatibilização…)')+'" value="'+escH(c.servico)+'" oninput="setColab('+E+','+i+',\'servico\',this.value)">'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'+
         rot('Forma de pagamento',sel(i,'forma',[['fixo','Valor fixo (R$)'],['pct','Percentual (%)']],c.forma))+
         (c.forma==='fixo'
-          ?rot('Valor total (R$)','<input class="form-input" type="number" step="0.01" style="padding:6px 8px;font-size:12px" placeholder="0,00" value="'+(c.valor||'')+'" oninput="setColabOrc('+i+',\'valor\',this.value)">')
-          :rot('Percentual (%)','<input class="form-input" type="number" step="0.01" style="padding:6px 8px;font-size:12px" placeholder="0,00" value="'+(c.pct?+(c.pct*100).toFixed(4):'')+'" oninput="setColabOrc('+i+',\'pct\',this.value)">'))+
+          ?rot('Valor total (R$)','<input class="form-input" type="number" step="0.01" style="padding:6px 8px;font-size:12px" placeholder="0,00" value="'+(c.valor||'')+'" oninput="setColab('+E+','+i+',\'valor\',this.value)">')
+          :rot('Percentual (%)','<input class="form-input" type="number" step="0.01" style="padding:6px 8px;font-size:12px" placeholder="0,00" value="'+(c.pct?+(c.pct*100).toFixed(4):'')+'" oninput="setColab('+E+','+i+',\'pct\',this.value)">'))+
       '</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
         (c.forma==='pct'
@@ -3342,13 +3407,13 @@ function renderColabsOrc(){
       '</div>'+
       (c.pag_modo==='data'
         ?'<div style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);flex-wrap:wrap">Pagar em '+
-          '<input class="form-input" type="date" style="padding:5px 8px;font-size:12px;max-width:170px" value="'+(c.pag_data||'')+'" onchange="setColabOrc('+i+',\'pag_data\',this.value)">'+
-          (c.forma==='pct'?'<span style="color:var(--text3);font-size:11px">valor estimado sobre o total do projeto</span>':'')+'</div>'
+          '<input class="form-input" type="date" style="padding:5px 8px;font-size:12px;max-width:170px" value="'+(c.pag_data||'')+'" onchange="setColab('+E+','+i+',\'pag_data\',this.value)">'+
+          (c.forma==='pct'?'<span style="color:var(--text3);font-size:11px">valor estimado sobre o total</span>':'')+'</div>'
         :'')+
     '</div>';
   }).join('')+
   '<div style="font-size:11px;color:var(--text3);line-height:1.6">O valor de cada um sai da base <strong>antes</strong> da comissão da equipe e vira uma conta a pagar com o nome e o projeto. '+
-  '"Acompanha cada recebimento" é lançado mês a mês pela tela de Comissões; "Valor cheio numa data" é lançado ao salvar o projeto fechado.</div>';
+  '"Acompanha cada recebimento" é lançado mês a mês pela tela de Comissões; "Valor cheio numa data" é lançado ao salvar.</div>';
 }
 
 /* ---------- vincular contas a receber antigas a um projeto ---------- */
@@ -3395,30 +3460,41 @@ function descOrc(o){ return o.nome_projeto ? (o.cliente+' — '+o.nome_projeto) 
 
 /* ---------- contas a pagar de indicação / colaborador ---------- */
 function catColab(c){ return c.tipo==='indicacao'?'Indicações':'Colaboradores externos'; }
-function descColabPagar(c,orc){ return (c.tipo==='indicacao'?'Indicação ':'Colaborador ')+c.nome+' — '+(orc?descOrc(orc):'projeto'); }
+function descColabPagar(c,proj){ return (c.tipo==='indicacao'?'Indicação ':'Colaborador ')+c.nome+' — '+(proj||'projeto'); }
 function obsColab(c,extra){ return (c.servico?('Serviço: '+c.servico+'. '):'')+extra; }
 function garantirCatPagar(nome){ const cats=getCats('pagar'); if(!cats.includes(nome)) saveCats('pagar',[...cats,nome]); }
 
 // valor total previsto para um colaborador no projeto inteiro
-function valorCheioColab(c,orc,itens,cfg){
+function valorCheioColab(c,totalRef,itens,cfg){
   if(c.forma==='fixo') return Math.round((c.valor||0)*100)/100;
   let base;
   if(itens.length){
-    base=itens.reduce((s,x)=>s+(c.base_pct==='bruto'?valEf(x):valEf(x)*(1-aliqImposto(x,cfg))),0);
+    base=itens.reduce((s2,x)=>s2+(c.base_pct==='bruto'?valEf(x):valEf(x)*(1-aliqImposto(x,cfg))),0);
   } else {
-    const total=orc.valor||0;
-    base=c.base_pct==='bruto'?total:total*(1-(cfg.imposto||0));
+    base=c.base_pct==='bruto'?totalRef:totalRef*(1-(cfg.imposto||0));
   }
   return Math.round(base*(c.pct||0)*100)/100;
 }
 
 // cria/atualiza/remove os lançamentos "valor cheio numa data" do projeto
-async function sincronizarColabsData(orc,removidos){
+// nome do projeto para exibir: orçamento ou descrição do lançamento sem o "(1/3)"
+function descProjetoChave(key,itens,orcById){
+  if(key.indexOf('o:')===0){const o=orcById[key.slice(2)];return o?descOrc(o):'projeto';}
+  const x=itens&&itens[0];
+  return x?((x.desc||'').replace(SUFIXO_PARCELA,'')):'lançamento';
+}
+
+// cria/atualiza/remove os lançamentos "valor cheio numa data" de um projeto (orçamento ou lançamento)
+async function sincronizarColabsKey(key,removidos){
   const all=await getData();
   const cfg=await getComConfig();
-  const colabs=(await getColabs()).filter(c=>c.orc_id===orc.id);
-  const itens=all.filter(x=>x.tipo==='receber'&&x.orc_id===orc.id);
-  const fechado=orc.status==='aprovado';
+  const orcById={};(await getOrcs()).forEach(o=>{orcById[o.id]=o;});
+  const colabs=(await getColabs()).filter(c=>chaveColab(c)===key);
+  const itens=all.filter(x=>x.tipo==='receber'&&chaveProjeto(x)===key);
+  const orc=key.indexOf('o:')===0?orcById[key.slice(2)]:null;
+  const fechado=orc?orc.status==='aprovado':true;
+  const totalRef=orc?(orc.valor||0):itens.reduce((s2,x)=>s2+valEf(x),0);
+  const proj=descProjetoChave(key,itens,orcById);
   const validos=fechado?colabs.filter(c=>c.pag_modo==='data'&&c.pag_data).map(c=>c.id):[];
   const idsProjeto=colabs.map(c=>c.id).concat(removidos||[]);
   let nC=0,nA=0,nR=0;
@@ -3434,12 +3510,12 @@ async function sincronizarColabsData(orc,removidos){
     // se antes ele era pago mês a mês, desconta o que já foi lançado assim (evita pagar em dobro)
     const jaMensal=all.filter(x=>x.tipo==='pagar'&&(x.comissao_ref||'').indexOf('colab|'+c.id+'|')===0)
       .reduce((s2,x)=>s2+(parseFloat(x.valor)||0),0);
-    const valor=Math.round((valorCheioColab(c,orc,itens,cfg)-jaMensal)*100)/100;
+    const valor=Math.round((valorCheioColab(c,totalRef,itens,cfg)-jaMensal)*100)/100;
     if(valor<=0.004)continue;
     const ref='colabdata|'+c.id;
     const ex=all.find(x=>x.comissao_ref===ref);
-    const dados={desc:descColabPagar(c,orc),valor,venc:c.pag_data,mes:c.pag_data.slice(0,7),parte:c.nome,cat:catColab(c),
-      obs:obsColab(c,'Pagamento do projeto em parcela única.'+(jaMensal>0.004?' Já descontados '+fmt(jaMensal)+' lançados mês a mês.':'')),comissao_ref:ref};
+    const dados={desc:descColabPagar(c,proj),valor,venc:c.pag_data,mes:c.pag_data.slice(0,7),parte:c.nome,cat:catColab(c),
+      obs:obsColab(c,'Pagamento em parcela única.'+(jaMensal>0.004?' Já descontados '+fmt(jaMensal)+' lançados mês a mês.':'')),comissao_ref:ref};
     garantirCatPagar(dados.cat);
     if(!ex){
       await addItem({...dados,id:genId(),tipo:'pagar',status:'pendente',nf:'',contrato:'',desconto:0,juros:0,multa:0});nC++;
@@ -3454,15 +3530,26 @@ async function sincronizarColabsData(orc,removidos){
   return p.join(', ');
 }
 
+// grava os colaboradores editados no modal de lançamento, presos ao projeto do lançamento de referência
+async function persistirColabsLanc(ref){
+  const ed=_colabEd.lanc;
+  if(!ed.lista.length&&!ed.orig.length)return '';
+  const key=chaveProjeto(ref);
+  const orcId=key.indexOf('o:')===0?key.slice(2):null;
+  const lancRef=key.indexOf('l:')===0?key.slice(2):null;
+  const ids=ed.lista.map(c=>c.id);
+  const removidos=ed.orig.filter(id=>!ids.includes(id));
+  for(const id of removidos) await delColab(id);
+  for(const c of ed.lista){ c.orc_id=orcId; c.lanc_ref=lancRef; c.nome=c.nome.trim(); c.servico=(c.servico||'').trim(); await saveColab(c); }
+  ed.orig=ids.slice();
+  return await sincronizarColabsKey(key,removidos);
+}
+
 async function salvarOrcamento(){
   const cliente=document.getElementById('o-cliente').value.trim();
   const valor=parseFloat(document.getElementById('o-valor').value);
   if(!cliente||!valor){showToast('Preencha cliente e valor.');return;}
-  for(const c of _orcColabs){
-    if(!(c.nome||'').trim()){showToast('Informe o nome de cada indicação/colaborador.');return;}
-    if(c.forma==='fixo'&&!(c.valor>0)){showToast('Informe o valor de '+c.nome.trim()+'.');return;}
-    if(c.forma==='pct'&&!(c.pct>0)){showToast('Informe o percentual de '+c.nome.trim()+'.');return;}
-  }
+  const errColab=validarColabs('orc'); if(errColab){showToast(errColab);return;}
   const status=document.getElementById('o-status').value;
   const fechado=status==='aprovado';
   const dataFech=fechado?document.getElementById('o-data-fech').value:'';
@@ -3479,7 +3566,7 @@ async function salvarOrcamento(){
     data_fech:dataFech||null,
     data_primeiro_pgto:dataPgto1||null,
     gera_comissao:geraComissao,
-    tem_indicacao:_orcColabs.some(c=>c.tipo==='indicacao'),
+    tem_indicacao:_colabEd.orc.lista.some(c=>c.tipo==='indicacao'),
     status,
     probabilidade:status==='aprovado'?100:status==='perdido'?0:50,
     obs:document.getElementById('o-obs').value.trim(),
@@ -3488,10 +3575,10 @@ async function salvarOrcamento(){
   else await addOrc(orc);
 
   // indicações e colaboradores
-  const idsAtuais=_orcColabs.map(c=>c.id);
-  const removidos=_orcColabsOrig.filter(id=>!idsAtuais.includes(id));
+  const idsAtuais=_colabEd.orc.lista.map(c=>c.id);
+  const removidos=_colabEd.orc.orig.filter(id=>!idsAtuais.includes(id));
   for(const id of removidos) await delColab(id);
-  for(const c of _orcColabs){ c.orc_id=orc.id; c.nome=c.nome.trim(); c.servico=(c.servico||'').trim(); await saveColab(c); }
+  for(const c of _colabEd.orc.lista){ c.orc_id=orc.id; c.lanc_ref=null; c.nome=c.nome.trim(); c.servico=(c.servico||'').trim(); await saveColab(c); }
 
   const msgs=[];
   const vinculados=fechado?(await getData()).filter(x=>x.orc_id===orc.id):[];
@@ -3525,7 +3612,7 @@ async function salvarOrcamento(){
   } else if(fechado){
     msgs.push('informe a data do 1º pagamento para gerar as parcelas');
   }
-  const mColab=await sincronizarColabsData(orc,removidos);
+  const mColab=await sincronizarColabsKey('o:'+orc.id,removidos);
   if(mColab) msgs.push(mColab);
   showToast((orcEditingId?'Atualizado':'Salvo')+(msgs.length?' — '+msgs.join('; '):'')+'.',msgs.length?6000:2800);
   closeModal('modal-orc');
@@ -4952,24 +5039,29 @@ function aliqImposto(item,cfg){
 
 // Contexto com orçamentos e colaboradores — montado antes de qualquer cálculo de comissão
 let _comCtx=null;
+// Contexto com orçamentos e colaboradores — montado antes de qualquer cálculo de comissão
 async function prepararCtxComissao(all){
   const orcs=await getOrcs();
   const colabs=await getColabs();
   const cfg=await getComConfig();
   const orcById={};orcs.forEach(o=>{orcById[o.id]=o;});
-  const colabsByOrc={};colabs.forEach(c=>{(colabsByOrc[c.orc_id]=colabsByOrc[c.orc_id]||[]).push(c);});
-  const itensByOrc={};
+  const colabsByKey={};colabs.forEach(c=>{const k=chaveColab(c);(colabsByKey[k]=colabsByKey[k]||[]).push(c);});
+  const itensByKey={};
   (all||[]).forEach(x=>{
-    if(x.tipo==='receber'&&x.orc_id&&colabsByOrc[x.orc_id])(itensByOrc[x.orc_id]=itensByOrc[x.orc_id]||[]).push(x);
+    if(x.tipo!=='receber')return;
+    const k=chaveProjeto(x);
+    if(colabsByKey[k])(itensByKey[k]=itensByKey[k]||[]).push(x);
   });
+  const projByKey={};
+  Object.keys(colabsByKey).forEach(k=>{projByKey[k]=descProjetoChave(k,itensByKey[k],orcById);});
   // quanto cada colaborador de valor fixo abate de cada parcela (valor cheio da parcela)
   const dedFixa={};
   const somaDed=(itemId,colabId,v)=>{(dedFixa[itemId]=dedFixa[itemId]||{});dedFixa[itemId][colabId]=(dedFixa[itemId][colabId]||0)+v;};
-  Object.keys(itensByOrc).forEach(oid=>{
-    const itens=itensByOrc[oid].slice().sort((a,b)=>((a.venc||'').localeCompare(b.venc||''))||((a.parcela||0)-(b.parcela||0)));
+  Object.keys(itensByKey).forEach(k=>{
+    const itens=itensByKey[k].slice().sort((a,b)=>((a.venc||'').localeCompare(b.venc||''))||((a.parcela||0)-(b.parcela||0)));
     const total=itens.reduce((s2,x)=>s2+valEf(x),0);
     const cap={};itens.forEach(x=>{cap[x.id]=valEf(x)*(1-aliqImposto(x,cfg));});
-    colabsByOrc[oid].filter(c=>c.forma==='fixo').forEach(c=>{
+    colabsByKey[k].filter(c=>c.forma==='fixo').forEach(c=>{
       if(c.desconto_modo==='primeiras'){
         let resta=c.valor||0;
         itens.forEach(x=>{
@@ -4982,14 +5074,14 @@ async function prepararCtxComissao(all){
       }
     });
   });
-  _comCtx={orcById,colabsByOrc,dedFixa};
+  _comCtx={orcById,colabsByKey,projByKey,dedFixa};
   return _comCtx;
 }
 
 // o que sai da base antes da comissão: indicação e colaboradores do projeto
 function deducoesItem(item,bruto,imposto,cfg){
   const ctx=_comCtx;
-  const colabs=(ctx&&item.orc_id&&ctx.colabsByOrc[item.orc_id])||null;
+  const colabs=(ctx&&ctx.colabsByKey[chaveProjeto(item)])||null;
   if(colabs&&colabs.length){
     const cheio=valEf(item);
     const frac=cheio>0?bruto/cheio:0;
@@ -5143,7 +5235,7 @@ async function renderComissoes(all){
         '<td style="font-weight:500">'+escH(c.nome)+
           '<div style="margin-top:3px"><span style="padding:1px 7px;background:#FFF3E0;color:#9C5700;border-radius:10px;font-size:10px;font-weight:600">'+(c.tipo==='indicacao'?'indicação':'colaborador externo')+'</span>'+
           (c.servico?' <span style="font-size:11px;color:var(--text3);font-weight:400">'+escH(c.servico)+'</span>':'')+'</div></td>'+
-        '<td style="color:var(--text2)">'+escH(r.orc?descOrc(r.orc):'—')+'</td>'+
+        '<td style="color:var(--text2)">'+escH(r.proj||'—')+'</td>'+
         '<td style="color:var(--text2);font-size:12px">'+(c.forma==='pct'?(+(c.pct*100).toFixed(2))+'% '+(c.base_pct==='bruto'?'do bruto':'do líquido'):fmt(c.valor)+' fixo')+
           '<div style="font-size:10px;color:var(--text3)">'+(r.modo==='data'?'valor cheio em '+fmtDate(c.pag_data):'acompanha recebimentos')+'</div></td>'+
         '<td class="td-right td-mono" style="font-weight:600">'+fmt(r.valor)+'</td>'+
@@ -5590,13 +5682,15 @@ function colabsDoMes(all,cfg,mes){
   (all||[]).forEach(x=>{const r=x.comissao_ref||'';if(r.indexOf('colabdata|')===0)comValorCheio[r.split('|')[1]]=true;});
   const mapa={};
   (all||[]).forEach(x=>{
-    if(x.tipo!=='receber'||!x.orc_id||!ctx.colabsByOrc[x.orc_id])return;
+    if(x.tipo!=='receber')return;
+    const k=chaveProjeto(x);
+    if(!ctx.colabsByKey[k])return;
     if(!['recebido','parcial'].includes(x.status)||mesRecebimento(x)!==mes)return;
     const bruto=valRealizado(x);
     const imposto=Math.round(bruto*aliqImposto(x,cfg)*100)/100;
     deducoesItem(x,bruto,imposto,cfg).lista.forEach(d=>{
       const c=d.colab; if(c.pag_modo!=='acompanha'||comValorCheio[c.id])return;
-      const r=mapa[c.id]=mapa[c.id]||{colab:c,orc:ctx.orcById[c.orc_id],valor:0,itens:[]};
+      const r=mapa[c.id]=mapa[c.id]||{colab:c,proj:ctx.projByKey[k],valor:0,itens:[]};
       r.valor+=d.valor; r.itens.push(x.desc);
     });
   });
@@ -5616,11 +5710,11 @@ function situacaoColabsMes(all,cfg,mes){
     return {...r,lanc,estado,modo:'acompanha'};
   });
   // "valor cheio numa data" que cai neste mês — só para conferência
-  Object.values(ctx.colabsByOrc).forEach(lista=>lista.forEach(c=>{
+  Object.values(ctx.colabsByKey).forEach(lista=>lista.forEach(c=>{
     if(c.pag_modo!=='data'||!c.pag_data||c.pag_data.slice(0,7)!==mes)return;
     const lanc=all.find(x=>x.comissao_ref==='colabdata|'+c.id);
     const valor=lanc?(parseFloat(lanc.valor)||0):0;
-    linhas.push({colab:c,orc:ctx.orcById[c.orc_id],valor,lanc,estado:lanc?(lanc.status==='pago'?'pago':'ok'):'nao_lancado',modo:'data'});
+    linhas.push({colab:c,proj:ctx.projByKey[chaveColab(c)],valor,lanc,estado:lanc?(lanc.status==='pago'?'pago':'ok'):'nao_lancado',modo:'data'});
   }));
   return linhas.sort((a,b)=>a.colab.nome.localeCompare(b.colab.nome));
 }
@@ -5635,7 +5729,7 @@ async function gerarLancamentosColabs(){
   const atualizar=linhas.filter(r=>r.estado==='desatualizado');
   if(!criar.length&&!atualizar.length){showToast('Nada a fazer — indicações e colaboradores de '+getMesLabel(mes)+' já estão em dia.');return;}
   let msg='Indicações e colaboradores — '+getMesLabel(mes)+'\n\n';
-  if(criar.length)msg+='CRIAR:\n'+criar.map(r=>'• '+r.colab.nome+' ('+(r.orc?descOrc(r.orc):'projeto')+'): '+fmt(r.valor)).join('\n')+'\n\n';
+  if(criar.length)msg+='CRIAR:\n'+criar.map(r=>'• '+r.colab.nome+' ('+(r.proj||'projeto')+'): '+fmt(r.valor)).join('\n')+'\n\n';
   if(atualizar.length)msg+='ATUALIZAR:\n'+atualizar.map(r=>'• '+r.colab.nome+': '+fmt(parseFloat(r.lanc.valor)||0)+' → '+fmt(r.valor)).join('\n')+'\n\n';
   if(!confirm(msg.trim()))return;
   const venc=ultimoDiaMes(mes);
@@ -5643,7 +5737,7 @@ async function gerarLancamentosColabs(){
     for(const r of criar){
       garantirCatPagar(catColab(r.colab));
       await addItem({
-        id:genId(),tipo:'pagar',desc:descColabPagar(r.colab,r.orc)+' — '+getMesLabel(mes),
+        id:genId(),tipo:'pagar',desc:descColabPagar(r.colab,r.proj)+' — '+getMesLabel(mes),
         valor:r.valor,venc,mes,parte:r.colab.nome,cat:catColab(r.colab),status:'pendente',nf:'',contrato:'',
         obs:obsColab(r.colab,'Ref. recebimentos de '+getMesLabel(mes)+': '+r.itens.join('; ')+'.'),
         comissao_ref:'colab|'+r.colab.id+'|'+mes,desconto:0,juros:0,multa:0
