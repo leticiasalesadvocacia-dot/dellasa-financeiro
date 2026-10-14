@@ -889,9 +889,26 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <button class="modal-close" onclick="closeModal('modal-orc')"><i class="ti ti-x"></i></button>
     </div>
     <div class="section-divider">Dados do orçamento</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Cliente</label>
+        <input class="form-input" id="o-cliente" placeholder="Ex: IBR Engenharia" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nome do projeto</label>
+        <input class="form-input" id="o-projeto" placeholder="Ex: Residencial Vista Mar" />
+      </div>
+    </div>
     <div class="form-group">
-      <label class="form-label">Cliente / Projeto</label>
-      <input class="form-input" id="o-cliente" placeholder="Ex: IBR Engenharia — Projeto Estrutural" />
+      <label class="form-label">Tipo de projeto</label>
+      <div id="o-tipos" style="display:flex;flex-wrap:wrap;gap:6px 16px;padding:4px 0">
+        <label class="checkbox-label" style="cursor:pointer"><input type="checkbox" value="Estrutural" /> Estrutural</label>
+        <label class="checkbox-label" style="cursor:pointer"><input type="checkbox" value="Fundação" /> Fundação</label>
+        <label class="checkbox-label" style="cursor:pointer"><input type="checkbox" value="Contenção" /> Contenção</label>
+        <label class="checkbox-label" style="cursor:pointer"><input type="checkbox" value="Alvenaria estrutural" /> Alvenaria estrutural</label>
+        <label class="checkbox-label" style="cursor:pointer"><input type="checkbox" value="Revisão / Aditivo" /> Revisão / Aditivo</label>
+        <label class="checkbox-label" style="cursor:pointer"><input type="checkbox" value="Outro" /> Outro</label>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -918,16 +935,33 @@ if (sessionStorage.getItem('ds_auth') === '1') {
         </select>
       </div>
     </div>
-    <div class="form-group" id="o-data-fech-group">
-      <label class="form-label">Data de fechamento</label>
-      <input class="form-input" id="o-data-fech" type="date" />
+    <div id="o-box-fechado" style="display:none">
+      <div class="section-divider">Fechamento</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Data de fechamento</label>
+          <input class="form-input" id="o-data-fech" type="date" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data do 1º pagamento</label>
+          <input class="form-input" id="o-data-pgto1" type="date" />
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+        <label class="checkbox-label" style="cursor:pointer">
+          <input type="checkbox" id="o-gera-comissao" onchange="toggleComissaoOrc()" /> Gera comissão para a equipe
+        </label>
+        <label class="checkbox-label" id="o-lbl-indicacao" style="display:none;cursor:pointer;padding-left:22px">
+          <input type="checkbox" id="o-tem-indicacao" /> Teve indicação (desconta a indicação antes da comissão)
+        </label>
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Observações</label>
       <input class="form-input" id="o-obs" placeholder="Opcional" />
     </div>
     <div id="o-aviso-aprovado" style="display:none;padding:10px 14px;background:var(--accent-light);border-radius:8px;font-size:12px;color:var(--accent);margin-bottom:12px">
-      <i class="ti ti-info-circle"></i> Ao salvar como <strong>Aprovado</strong>, uma conta a receber será criada automaticamente no mês de fechamento.
+      <i class="ti ti-info-circle"></i> Com a <strong>data do 1º pagamento</strong> preenchida, as parcelas são criadas automaticamente em A Receber (mensais, a partir dessa data) — já marcadas como comissionáveis se a opção estiver ligada. Sem a data, o orçamento fica fechado e as parcelas podem ser geradas depois.
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
       <button class="btn" onclick="closeModal('modal-orc')">Cancelar</button>
@@ -3149,6 +3183,7 @@ async function salvarParcial(){
   render();
 }
 let orcFiltro='todos';
+let orcFiltroTipo='todos';
 
 async function openOrcamento(id){
   orcEditingId=id||null;
@@ -3156,34 +3191,64 @@ async function openOrcamento(id){
   const orc=id?orcs.find(x=>x.id===id):null;
   document.getElementById('modal-orc-title').textContent=id?'Editar Orçamento':'Novo Orçamento';
   document.getElementById('o-cliente').value=orc?orc.cliente:'';
+  document.getElementById('o-projeto').value=orc?(orc.nome_projeto||''):'';
+  const tiposSel=(orc&&orc.tipo_projeto)?orc.tipo_projeto.split(',').map(t=>t.trim()):[];
+  document.querySelectorAll('#o-tipos input[type=checkbox]').forEach(cb=>{cb.checked=tiposSel.includes(cb.value);});
   document.getElementById('o-valor').value=orc?orc.valor:'';
   document.getElementById('o-parcelas').value=orc?orc.parcelas:1;
   document.getElementById('o-data-envio').value=orc?orc.data_envio:'';
-  document.getElementById('o-data-fech').value=orc?orc.data_fech:'';
+  document.getElementById('o-data-fech').value=orc?(orc.data_fech||''):'';
+  document.getElementById('o-data-pgto1').value=orc?(orc.data_primeiro_pgto||''):'';
+  document.getElementById('o-gera-comissao').checked=!!(orc&&orc.gera_comissao);
+  document.getElementById('o-tem-indicacao').checked=!!(orc&&orc.tem_indicacao);
   document.getElementById('o-status').value=orc?orc.status:'enviado';
-  document.getElementById('o-obs').value=orc?orc.obs:'';
+  document.getElementById('o-obs').value=orc?(orc.obs||''):'';
+  toggleComissaoOrc();
   toggleDataFechOrc();
   document.getElementById('modal-orc').classList.add('open');
 }
 
 function toggleDataFechOrc(){
   const s=document.getElementById('o-status').value;
-  document.getElementById('o-data-fech-group').style.opacity=s==='aprovado'?'1':'0.4';
-  document.getElementById('o-aviso-aprovado').style.display=s==='aprovado'?'block':'none';
+  const fechado=s==='aprovado';
+  document.getElementById('o-box-fechado').style.display=fechado?'block':'none';
+  document.getElementById('o-aviso-aprovado').style.display=fechado?'block':'none';
+  // Ao marcar fechado, sugere a data de hoje no fechamento
+  const df=document.getElementById('o-data-fech');
+  if(fechado&&!df.value) df.value=new Date().toISOString().slice(0,10);
 }
+
+function toggleComissaoOrc(){
+  const on=document.getElementById('o-gera-comissao').checked;
+  document.getElementById('o-lbl-indicacao').style.display=on?'flex':'none';
+  if(!on) document.getElementById('o-tem-indicacao').checked=false;
+}
+
+// Descrição usada nas contas a receber geradas pelo orçamento
+function descOrc(o){ return o.nome_projeto ? (o.cliente+' — '+o.nome_projeto) : o.cliente; }
 
 async function salvarOrcamento(){
   const cliente=document.getElementById('o-cliente').value.trim();
   const valor=parseFloat(document.getElementById('o-valor').value);
   if(!cliente||!valor){showToast('Preencha cliente e valor.');return;}
   const status=document.getElementById('o-status').value;
-  const dataFech=document.getElementById('o-data-fech').value;
+  const fechado=status==='aprovado';
+  const dataFech=fechado?document.getElementById('o-data-fech').value:'';
+  const dataPgto1=fechado?document.getElementById('o-data-pgto1').value:'';
+  const geraComissao=fechado&&document.getElementById('o-gera-comissao').checked;
+  const temIndicacao=geraComissao&&document.getElementById('o-tem-indicacao').checked;
+  const tipos=Array.from(document.querySelectorAll('#o-tipos input[type=checkbox]:checked')).map(cb=>cb.value);
   const orc={
     id:orcEditingId||genId(),
     cliente,valor,
+    nome_projeto:document.getElementById('o-projeto').value.trim()||null,
+    tipo_projeto:tipos.length?tipos.join(', '):null,
     parcelas:parseInt(document.getElementById('o-parcelas').value)||1,
     data_envio:document.getElementById('o-data-envio').value,
     data_fech:dataFech||null,
+    data_primeiro_pgto:dataPgto1||null,
+    gera_comissao:geraComissao,
+    tem_indicacao:temIndicacao,
     status,
     probabilidade:status==='aprovado'?100:status==='perdido'?0:50,
     obs:document.getElementById('o-obs').value.trim(),
@@ -3191,36 +3256,49 @@ async function salvarOrcamento(){
   if(orcEditingId) await updateOrc(orcEditingId,orc);
   else await addOrc(orc);
 
-  if(status==='aprovado'&&dataFech){
-    const all=await getData();
-    const jaExiste=all.some(x=>x.orc_id===orc.id);
-    if(!jaExiste){
-      const valParcela=parseFloat((orc.valor/orc.parcelas).toFixed(2));
+  const vinculados=fechado?(await getData()).filter(x=>x.orc_id===orc.id):[];
+  if(fechado&&(dataPgto1||vinculados.length>0)){
+    if(vinculados.length===0){
+      const desc=descOrc(orc);
+      const base={tipo:'receber',parte:cliente,cat:'Serviços de engenharia',status:'pendente',nf:'',contrato:'',obs:'Gerado do orçamento',orc_id:orc.id,comissionavel:geraComissao,tem_indicacao:temIndicacao};
       if(orc.parcelas===1){
-        await addItem({id:genId(),tipo:'receber',desc:cliente,valor,venc:dataFech,parte:cliente,cat:'Serviços de engenharia',status:'pendente',nf:'',contrato:'',obs:'Gerado do orçamento',mes:dataFech.slice(0,7),orc_id:orc.id});
+        await addItem({...base,id:genId(),desc,valor,venc:dataPgto1,mes:dataPgto1.slice(0,7)});
       } else {
         const grupoId=genId();
+        const valParcela=Math.round(orc.valor/orc.parcelas*100)/100;
+        let acumulado=0;
         for(let i=0;i<orc.parcelas;i++){
-          const vencP=addDias(dataFech,i*30);
-          await addItem({id:genId(),tipo:'receber',desc:`${cliente} (${i+1}/${orc.parcelas})`,valor:valParcela,venc:vencP,parte:cliente,cat:'Serviços de engenharia',status:'pendente',nf:'',contrato:'',obs:'Gerado do orçamento',mes:vencP.slice(0,7),orc_id:orc.id,grupoId,parcela:i+1,totalParcelas:orc.parcelas});
+          // parcelas mensais, mesmo dia do 1º pagamento
+          const d=new Date(dataPgto1+'T12:00:00');d.setMonth(d.getMonth()+i);
+          const vencP=d.toISOString().slice(0,10);
+          // a última parcela absorve a diferença de centavos
+          const v=(i===orc.parcelas-1)?Math.round((orc.valor-acumulado)*100)/100:valParcela;
+          acumulado+=v;
+          await addItem({...base,id:genId(),desc:desc+' ('+(i+1)+'/'+orc.parcelas+')',valor:v,venc:vencP,mes:vencP.slice(0,7),grupoId,parcela:i+1,totalParcelas:orc.parcelas});
         }
       }
-      showToast(`Salvo! ${orc.parcelas} conta(s) a receber criada(s) e meta atualizada!`);
+      showToast('Salvo! '+orc.parcelas+' conta(s) a receber criada(s)'+(geraComissao?' com comissão':'')+'.');
     } else {
-      showToast('Orçamento atualizado.');
+      // Já existem parcelas: sincroniza a marcação de comissão nas que ainda não foram recebidas
+      const aAjustar=vinculados.filter(x=>x.status!=='recebido'&&(!!x.comissionavel!==geraComissao||!!x.tem_indicacao!==temIndicacao));
+      for(const x of aAjustar){ await updateItem(x.id,{comissionavel:geraComissao,tem_indicacao:temIndicacao}); }
+      showToast('Orçamento atualizado.'+(aAjustar.length?' Comissão ajustada em '+aAjustar.length+' parcela(s) em aberto.':''));
     }
+  } else if(fechado){
+    showToast('Fechado! Informe a data do 1º pagamento para gerar as parcelas em A Receber.');
   } else {
     showToast(orcEditingId?'Atualizado.':'Salvo.');
   }
   closeModal('modal-orc');
-  render();
+  await render();
 }
 
 async function confirmarDelOrc(id){if(confirm('Excluir este orçamento?')){await delOrc(id);showToast('Excluído.');render();}}
 
 async function renderOrcamentos(){
   const orcs=await getOrcs();
-  const filtrado=orcFiltro==='todos'?orcs:orcs.filter(x=>x.status===orcFiltro);
+  let filtrado=orcFiltro==='todos'?orcs:orcs.filter(x=>x.status===orcFiltro);
+  if(orcFiltroTipo!=='todos') filtrado=filtrado.filter(x=>(x.tipo_projeto||'').split(',').map(t=>t.trim()).includes(orcFiltroTipo));
   const aprovados=orcs.filter(x=>x.status==='aprovado');
   const emAberto=orcs.filter(x=>x.status!=='aprovado'&&x.status!=='perdido');
   const perdidos=orcs.filter(x=>x.status==='perdido');
@@ -3250,18 +3328,22 @@ async function renderOrcamentos(){
             <option value="aprovado" ${orcFiltro==='aprovado'?'selected':''}>Aprovado</option>
             <option value="perdido" ${orcFiltro==='perdido'?'selected':''}>Perdido</option>
           </select>
+          <select class="filter-select" onchange="orcFiltroTipo=this.value;render()">
+            ${['todos','Estrutural','Fundação','Contenção','Alvenaria estrutural','Revisão / Aditivo','Outro'].map(t=>'<option value="'+t+'"'+(orcFiltroTipo===t?' selected':'')+'>'+(t==='todos'?'Todos os tipos':t)+'</option>').join('')}
+          </select>
         </div>
       </div>
       <table>
-        <thead><tr><th>Cliente / Projeto</th><th>Envio</th><th>Fechamento</th><th style="text-align:center">Parcelas</th><th>Status</th><th class="td-right">Valor</th><th></th></tr></thead>
+        <thead><tr><th>Cliente / Projeto</th><th>Envio</th><th>Fechamento</th><th>1º pgto</th><th style="text-align:center">Parcelas</th><th>Status</th><th class="td-right">Valor</th><th></th></tr></thead>
         <tbody>
-        ${filtrado.length===0?'<tr><td colspan="7"><div class="empty"><i class="ti ti-inbox"></i><p>Nenhum orçamento encontrado.</p></div></td></tr>':
+        ${filtrado.length===0?'<tr><td colspan="8"><div class="empty"><i class="ti ti-inbox"></i><p>Nenhum orçamento encontrado.</p></div></td></tr>':
         filtrado.sort((a,b)=>{const o={aprovado:0,em_negociacao:1,enviado:2,perdido:3};return(o[a.status]||9)-(o[b.status]||9);}).map(o=>{
           const sc={aprovado:{label:'Aprovado',cls:'recebido'},enviado:{label:'Enviado',cls:'pendente'},em_negociacao:{label:'Em negociação',cls:'parcial'},perdido:{label:'Perdido',cls:'vencido'}}[o.status]||{label:o.status,cls:'pendente'};
           return`<tr>
-            <td style="font-weight:500;max-width:240px">${o.cliente}${o.obs?`<br><small style="color:var(--text3);font-weight:400">${o.obs}</small>`:''}</td>
+            <td style="font-weight:500;max-width:280px">${o.cliente}${o.nome_projeto?'<br><span style="font-weight:400;color:var(--text2);font-size:12px">'+o.nome_projeto+'</span>':''}${(o.tipo_projeto||o.gera_comissao)?'<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">'+(o.tipo_projeto||'').split(',').map(t=>t.trim()).filter(Boolean).map(t=>'<span style="padding:1px 7px;background:var(--accent-light);color:var(--accent);border-radius:10px;font-size:10px;font-weight:600">'+t+'</span>').join('')+(o.gera_comissao?'<span style="padding:1px 7px;background:#E3EEF8;color:#1A4A7A;border-radius:10px;font-size:10px;font-weight:600">comissão'+(o.tem_indicacao?' + indicação':'')+'</span>':'')+'</div>':''}${o.obs?'<small style="color:var(--text3);font-weight:400;display:block;margin-top:2px">'+o.obs+'</small>':''}</td>
             <td class="td-mono">${o.data_envio?fmtDate(o.data_envio):'—'}</td>
             <td class="td-mono">${o.data_fech?fmtDate(o.data_fech):'—'}</td>
+            <td class="td-mono">${o.data_primeiro_pgto?fmtDate(o.data_primeiro_pgto):(o.status==='aprovado'?'<span style="color:#B57C1A;font-family:inherit;font-size:11px">a definir</span>':'—')}</td>
             <td style="text-align:center;color:var(--text2)">${o.parcelas}x</td>
             <td><span class="badge ${sc.cls}">${sc.label}</span></td>
             <td class="td-right td-mono" style="color:${o.status==='aprovado'?'var(--accent)':o.status==='perdido'?'var(--text3)':'var(--text)'}">${fmt(o.valor)}</td>
