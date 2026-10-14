@@ -1368,7 +1368,9 @@ async function getColabs(){
   _cacheColabs=(Array.isArray(rows)?rows:[]).map(r=>({
     id:r.id, orc_id:r.orc_id, tipo:r.tipo||'externo', nome:r.nome||'', servico:r.servico||'',
     forma:r.forma||'fixo', valor:parseFloat(r.valor)||0, pct:parseFloat(r.pct)||0,
-    base_pct:r.base_pct||'liquido', desconto_modo:r.desconto_modo||'proporcional',
+    base_pct:r.base_pct||'liquido',
+    desconto_modo:({proporcional:'abertas',primeiras:'proximas'})[r.desconto_modo]||r.desconto_modo||'abertas',
+    desconto_parcela:r.desconto_parcela||null,
     pag_modo:r.pag_modo||'acompanha', pag_data:r.pag_data||'', lanc_ref:r.lanc_ref||null,
     criado_em:(r.created_at||'').slice(0,10)
   }));
@@ -1378,7 +1380,8 @@ async function saveColab(c){
   await db('upsert','orc_colaboradores',{
     id:c.id, orc_id:c.orc_id, tipo:c.tipo, nome:c.nome, servico:c.servico||null,
     forma:c.forma, valor:c.forma==='fixo'?(c.valor||0):null, pct:c.forma==='pct'?(c.pct||0):null,
-    base_pct:c.base_pct, desconto_modo:c.desconto_modo, pag_modo:c.pag_modo, pag_data:c.pag_data||null,
+    base_pct:c.base_pct, desconto_modo:c.desconto_modo, desconto_parcela:c.desconto_modo==='parcela'?(c.desconto_parcela||null):null,
+    pag_modo:c.pag_modo, pag_data:c.pag_data||null,
     lanc_ref:c.lanc_ref||null
   });
   invalidateCache();
@@ -1474,7 +1477,7 @@ function openAdd(){
   document.getElementById('f-comissionavel').checked=false;
   document.getElementById('f-tem-indicacao').checked=false;
   document.getElementById('f-imposto-pct').value='';
-  _colabEd.lanc.lista=[];_colabEd.lanc.orig=[];
+  _colabEd.lanc.lista=[];_colabEd.lanc.orig=[];_colabEd.lanc.parcelas=[];_colabEd.lanc.atual=null;
   document.getElementById('f-colabs-escopo').textContent='Se parcelar, vale para todas as parcelas deste lançamento.';
   renderColabs('lanc');
   getComConfig().then(c=>{_comCfgOrc=c;});
@@ -1516,6 +1519,9 @@ async function openEdit(id){
   const colabsLanc=(await getColabs()).filter(c=>chaveColab(c)===keyLanc);
   _colabEd.lanc.lista=colabsLanc.map(c=>({...c}));
   _colabEd.lanc.orig=colabsLanc.map(c=>c.id);
+  _colabEd.lanc.atual=item.id;
+  _colabEd.lanc.parcelas=all.filter(x=>x.tipo==='receber'&&chaveProjeto(x)===keyLanc)
+    .sort((a,b)=>((a.venc||'').localeCompare(b.venc||''))||((a.parcela||0)-(b.parcela||0)));
   let escopo='Vale só para este lançamento.';
   if(item.orc_id){
     const o=(await getOrcs()).find(x=>x.id===item.orc_id);
@@ -3295,7 +3301,7 @@ let orcFiltro='todos';
 let orcFiltroTipo='todos';
 
 // editores de indicação/colaboradores: um no modal do orçamento, outro no modal de lançamento
-const _colabEd={orc:{lista:[],orig:[],box:'o-colabs-lista'},lanc:{lista:[],orig:[],box:'f-colabs-lista'}};
+const _colabEd={orc:{lista:[],orig:[],parcelas:[],atual:null,box:'o-colabs-lista'},lanc:{lista:[],orig:[],parcelas:[],atual:null,box:'f-colabs-lista'}};
 let _comCfgOrc=null;
 
 function escH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -3307,6 +3313,9 @@ async function openOrcamento(id){
   _comCfgOrc=await getComConfig();
   const colabs=id?(await getColabs()).filter(c=>c.orc_id===id):[];
   _colabEd.orc.lista=colabs.map(c=>({...c}));
+  _colabEd.orc.atual=null;
+  _colabEd.orc.parcelas=id?(await getData()).filter(x=>x.tipo==='receber'&&x.orc_id===id)
+    .sort((a,b)=>((a.venc||'').localeCompare(b.venc||''))||((a.parcela||0)-(b.parcela||0))):[];
   _colabEd.orc.orig=colabs.map(c=>c.id);
   document.getElementById('modal-orc-title').textContent=id?'Editar Orçamento':'Novo Orçamento';
   document.getElementById('o-cliente').value=orc?orc.cliente:'';
@@ -3354,7 +3363,9 @@ function addColab(ed,tipo){
   const ind=tipo==='indicacao';
   _colabEd[ed].lista.push({id:genId(),orc_id:null,lanc_ref:null,tipo,nome:'',servico:'',
     forma:ind?'pct':'fixo',valor:0,pct:ind?((_comCfgOrc&&_comCfgOrc.indicacao)||0.05):0,
-    base_pct:'liquido',desconto_modo:'proporcional',pag_modo:'acompanha',pag_data:''});
+    base_pct:'liquido',
+    desconto_modo:_colabEd[ed].atual?'parcela':'abertas',desconto_parcela:_colabEd[ed].atual||null,
+    pag_modo:'acompanha',pag_data:''});
   renderColabs(ed);
 }
 function remColab(ed,i){_colabEd[ed].lista.splice(i,1);renderColabs(ed);}
@@ -3370,8 +3381,25 @@ function validarColabs(ed){
     if(!(c.nome||'').trim())return 'Informe o nome de cada indicação/colaborador.';
     if(c.forma==='fixo'&&!(c.valor>0))return 'Informe o valor de '+c.nome.trim()+'.';
     if(c.forma==='pct'&&!(c.pct>0))return 'Informe o percentual de '+c.nome.trim()+'.';
+    if(c.desconto_modo==='parcela'&&!c.desconto_parcela)return 'Escolha de qual parcela sai o valor de '+c.nome.trim()+'.';
   }
   return '';
+}
+function opcoesDesconto(c,parcelas){
+  const op=c.forma==='pct'
+    ?[['abertas','Parcelas em aberto (a partir do cadastro)'],['todas','Todas as parcelas, inclusive já recebidas']]
+    :[['abertas','Proporcional às parcelas em aberto'],['proximas','Abate das próximas parcelas em aberto'],['todas','Proporcional a todas, inclusive já recebidas']];
+  if(parcelas.length||c.desconto_modo==='parcela')op.push(['parcela',c.forma==='pct'?'Só em uma parcela':'Tudo de uma parcela (escolher)']);
+  return op;
+}
+function rotuloParcela(x,atual){
+  const rec=['recebido','parcial'].includes(x.status);
+  const m=(x.desc||'').match(/\((\d+\/\d+)\)$/);
+  return (x.id===atual?'Esta parcela — ':'')+(m?'Parcela '+m[1]:(x.desc||'Parcela'))+' · '+fmtDate(x.venc)+' · '+fmt(valEf(x))+(rec?' · já recebida':'');
+}
+function parcelaRecebida(parcelas,id){
+  const x=parcelas.find(p=>p.id===id);
+  return !!(x&&['recebido','parcial'].includes(x.status));
 }
 function renderColabs(ed){
   const lista=_colabEd[ed].lista;
@@ -3382,6 +3410,7 @@ function renderColabs(ed){
     return;
   }
   const E="'"+ed+"'";
+  const parcelas=_colabEd[ed].parcelas||[];
   const sel=(i,campo,opts,val)=>'<select class="form-select" style="padding:6px 8px;font-size:12px;width:100%" onchange="setColab('+E+','+i+',\''+campo+'\',this.value,true)">'+
     opts.map(o=>'<option value="'+o[0]+'"'+(val===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>';
   const rot=(t,html)=>'<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px">'+t+'</div>'+html+'</div>';
@@ -3401,11 +3430,19 @@ function renderColabs(ed){
           :rot('Percentual (%)','<input class="form-input" type="number" step="0.01" style="padding:6px 8px;font-size:12px" placeholder="0,00" value="'+(c.pct?+(c.pct*100).toFixed(4):'')+'" oninput="setColab('+E+','+i+',\'pct\',this.value)">'))+
       '</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
-        (c.forma==='pct'
-          ?rot('% calculada sobre',sel(i,'base_pct',[['liquido','Recebido menos imposto'],['bruto','Valor bruto recebido']],c.base_pct))
-          :rot('Desconto da comissão',sel(i,'desconto_modo',[['proporcional','Proporcional às parcelas'],['primeiras','Abate das primeiras parcelas']],c.desconto_modo)))+
+        rot(c.forma==='pct'?'Aplicar em':'Sai de quais parcelas',sel(i,'desconto_modo',opcoesDesconto(c,parcelas),
+          (c.forma==='pct'&&c.desconto_modo==='proximas')?'abertas':c.desconto_modo))+
         rot('Lançar em A Pagar',sel(i,'pag_modo',[['acompanha','Acompanha cada recebimento'],['data','Valor cheio numa data']],c.pag_modo))+
       '</div>'+
+      (c.desconto_modo==='parcela'&&parcelas.length
+        ?'<div style="margin-top:8px">'+rot('Parcela',sel(i,'desconto_parcela',[['','— escolha —']].concat(parcelas.map(x=>[x.id,rotuloParcela(x,_colabEd[ed].atual)])),c.desconto_parcela||''))+
+          (parcelaRecebida(parcelas,c.desconto_parcela)
+            ?'<div style="font-size:11px;color:#9C5700;margin-top:4px"><i class="ti ti-alert-triangle"></i> Essa parcela já foi recebida: a comissão do mês dela será recalculada. Se a comissão daquele mês já foi paga, a diferença não é descontada automaticamente.</div>':'')+
+          '</div>'
+        :'')+
+      (c.forma==='pct'
+        ?'<div style="margin-top:8px">'+rot('% calculada sobre',sel(i,'base_pct',[['liquido','Recebido menos imposto'],['bruto','Valor bruto recebido']],c.base_pct))+'</div>'
+        :'')+
       (c.pag_modo==='data'
         ?'<div style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);flex-wrap:wrap">Pagar em '+
           '<input class="form-input" type="date" style="padding:5px 8px;font-size:12px;max-width:170px" value="'+(c.pag_data||'')+'" onchange="setColab('+E+','+i+',\'pag_data\',this.value)">'+
@@ -5066,15 +5103,20 @@ async function prepararCtxComissao(all){
     colabsByKey[k].forEach(c=>{
       // o colaborador entra a partir do cadastro: parcelas já recebidas antes disso não são mexidas
       // (se todas já foram recebidas, vale para todas — cadastro feito depois, de propósito)
-      let alvo=itens.filter(x=>{
-        if(!c.criado_em||!['recebido','parcial'].includes(x.status))return true;
-        return ((x.data_pagamento||x.venc)||'')>=c.criado_em;
-      });
-      if(!alvo.length)alvo=itens;
+      let alvo;
+      if(c.desconto_modo==='todas') alvo=itens;
+      else if(c.desconto_modo==='parcela') alvo=itens.filter(x=>x.id===c.desconto_parcela);
+      if(!alvo||!alvo.length){
+        alvo=itens.filter(x=>{
+          if(!c.criado_em||!['recebido','parcial'].includes(x.status))return true;
+          return ((x.data_pagamento||x.venc)||'')>=c.criado_em;
+        });
+        if(!alvo.length)alvo=itens;
+      }
       elegivel[c.id]={};alvo.forEach(x=>{elegivel[c.id][x.id]=true;});
       if(c.forma!=='fixo')return;
       const totalAlvo=alvo.reduce((s2,x)=>s2+valEf(x),0);
-      if(c.desconto_modo==='primeiras'){
+      if(c.desconto_modo==='proximas'){
         let resta=c.valor||0;
         alvo.forEach(x=>{
           const v=Math.max(0,Math.min(resta,cap[x.id]));
