@@ -5226,7 +5226,7 @@ async function renderComissoes(all){
       '<button class="btn '+(precisaSyncColab?'primary':'')+'" onclick="gerarLancamentosColabs()"'+(precisaSyncColab?'':' disabled')+' style="padding:5px 10px;font-size:12px'+(precisaSyncColab?'':';opacity:.55;cursor:default')+'">'+
         '<i class="ti ti-refresh"></i> '+(precisaSyncColab?'Lançar / atualizar em A Pagar':'Tudo sincronizado')+'</button>'+
     '</div>'+
-    '<table><thead><tr><th>Nome</th><th>Projeto</th><th>Forma</th><th class="td-right">Valor do mês</th><th class="td-right">Em A Pagar</th><th>Situação</th></tr></thead><tbody>'+
+    '<table><thead><tr><th>Nome</th><th>Projeto</th><th>Forma</th><th class="td-right">Valor do mês</th><th class="td-right">Em A Pagar</th><th>Situação</th><th></th></tr></thead><tbody>'+
     colabRows.map(r=>{
       const c=r.colab;
       const cor=(r.estado==='ok'||r.estado==='pago')?'var(--accent)':(r.estado==='desatualizado'?'#9C5700':'var(--text3)');
@@ -5241,6 +5241,7 @@ async function renderComissoes(all){
         '<td class="td-right td-mono" style="font-weight:600">'+fmt(r.valor)+'</td>'+
         '<td class="td-right td-mono">'+(r.lanc?fmt(parseFloat(r.lanc.valor)||0):'—')+'</td>'+
         '<td><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;color:'+cor+';background:var(--surface2)">'+txt+'</span></td>'+
+        '<td style="text-align:right"><button class="btn" onclick="relatorioColaborador(\''+c.id+'\')" style="padding:3px 9px;font-size:11px"><i class="ti ti-file-text"></i> Relatório</button></td>'+
       '</tr>';
     }).join('')+
     '</tbody></table>'+
@@ -5331,7 +5332,7 @@ async function renderComissoes(all){
     '</div>'+
     '<table><thead><tr><th>Pessoa</th><th class="td-right">Total do mês</th>'+
       '<th class="td-right">Já recebido</th><th class="td-right">Previsto</th>'+
-      '<th class="td-right">Em A Pagar</th><th>Situação</th></tr></thead><tbody>'+
+      '<th class="td-right">Em A Pagar</th><th>Situação</th><th></th></tr></thead><tbody>'+
     situacao.map(r=>{
       const cor=r.estado==='ok'?'var(--accent)':(r.estado==='pago'?'var(--accent)':(r.estado==='desatualizado'?'#9C5700':'var(--text3)'));
       const txt=r.estado==='ok'?'em dia':(r.estado==='pago'?'já pago — não será alterado':(r.estado==='desatualizado'?'valor diferente — precisa atualizar':'ainda não lançado'));
@@ -5342,6 +5343,7 @@ async function renderComissoes(all){
         '<td class="td-right td-mono" style="color:var(--text3)">'+(sync.tot[r.b.id].previsto>0.004?fmt(sync.tot[r.b.id].previsto):'—')+'</td>'+
         '<td class="td-right td-mono">'+(r.lanc?fmt(r.atual):'—')+'</td>'+
         '<td><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;color:'+cor+';background:var(--surface2)">'+txt+'</span></td>'+
+        '<td style="text-align:right"><button class="btn" onclick="relatorioIndividual(\''+r.b.id+'\')" style="padding:3px 9px;font-size:11px"><i class="ti ti-file-text"></i> Relatório</button></td>'+
       '</tr>';
     }).join('')+
     '</tbody></table>'+
@@ -5382,7 +5384,7 @@ async function renderComissoes(all){
     '</div>'+
   '</div>':'')+
 
-  (benef.length&&calcs.length?
+  (benef.length?
   '<div class="table-wrap" style="margin-bottom:20px">'+
     '<div class="table-header" style="flex-wrap:wrap;gap:8px">'+
       '<div class="table-title">Relatório individual — para enviar a cada pessoa</div>'+
@@ -5423,7 +5425,21 @@ async function relatorioIndividual(benefId){
   const {cfg,benef,calcs}=await dadosComissoesMes(mes);
   const b=benef.find(x=>x.id===benefId);
   if(!b){showToast('Beneficiário não encontrado.');return;}
-  if(!calcs.length){showToast('Nenhum recebimento comissionável neste mês.');return;}
+  const allR=await getData();
+  const previstosR=allR.filter(x=>x.tipo==='receber'&&x.comissionavel&&mesRecebimento(x)===mes&&['pendente','vencido'].includes(x.status))
+    .sort((a,b2)=>(a.venc||'').localeCompare(b2.venc||''))
+    .map(x=>({item:x,c:calcComissao(x,cfg,benef,Math.max(0,valEf(x)-(parseFloat(x.pago_parcial)||0)))}));
+  if(!calcs.length&&!previstosR.length){showToast('Nenhum recebimento comissionável (recebido ou previsto) neste mês.');return;}
+  const totalPrev=previstosR.reduce((s2,r)=>s2+Math.round(r.c.baseTotal*(b.percentual||0)*100)/100,0);
+  const tabelaPrev=previstosR.length?
+    '<h2 style="font-size:14px;color:#666;margin:26px 0 8px">Previsto — ainda não recebido pela empresa</h2>'+
+    '<table><thead><tr><th>Projeto / Descrição</th><th>Cliente</th><th style="text-align:center">Vencimento</th>'+
+    '<th style="text-align:right">Valor a receber</th><th style="text-align:right">Base prevista</th><th style="text-align:right">Comissão prevista</th></tr></thead><tbody>'+
+    previstosR.map(r=>'<tr style="color:#777"><td>'+r.item.desc+'</td><td>'+(r.item.parte||'—')+'</td><td style="text-align:center">'+fmtDate(r.item.venc)+'</td>'+
+      '<td style="text-align:right">'+fmt(r.c.bruto)+'</td><td style="text-align:right">'+fmt(r.c.baseTotal)+'</td>'+
+      '<td style="text-align:right">'+fmt(Math.round(r.c.baseTotal*(b.percentual||0)*100)/100)+'</td></tr>').join('')+
+    '</tbody><tfoot><tr><td colspan="5">TOTAL PREVISTO</td><td style="text-align:right">'+fmt(totalPrev)+'</td></tr></tfoot></table>'+
+    '<div class="nota" style="margin-bottom:18px">O valor previsto só é devido depois que o cliente pagar. Ele aparece aqui para acompanhamento.</div>':'';
 
   const linhas=calcs.map(r=>{
     const x=r.item,c=r.c;
@@ -5434,6 +5450,7 @@ async function relatorioIndividual(benefId){
       '<td style="text-align:center">'+fmtDate(x.data_pagamento||x.venc)+'</td>'+
       '<td style="text-align:right">'+fmt(c.bruto)+'</td>'+
       '<td style="text-align:right">'+(c.aliq*100).toFixed(2).replace('.',',')+'%</td>'+
+      '<td style="text-align:right">'+(c.indicacao?'-'+fmt(c.indicacao)+'<div style="font-size:10px;color:#999">'+c.deducoes.map(d=>escH(d.colab.nome)).join(', ')+'</div>':'—')+'</td>'+
       '<td style="text-align:right">'+fmt(c.baseTotal)+'</td>'+
       '<td style="text-align:right;font-weight:600">'+fmt(valorPessoa)+'</td>'+
     '</tr>';
@@ -5465,12 +5482,13 @@ async function relatorioIndividual(benefId){
   '<div class="destaque"><div class="rot">Total a receber de comissão</div><div class="val">'+fmt(total)+'</div>'+
     '<div style="font-size:11px;color:#2A5C45;margin-top:6px">'+(b.percentual*100).toFixed(2).replace('.',',')+'% sobre a base de '+fmt(totalBase)+' &middot; '+calcs.length+' recebimento(s)</div></div>'+
   '<table><thead><tr><th>Projeto / Descrição</th><th>Cliente</th><th style="text-align:center">Recebido em</th>'+
-    '<th style="text-align:right">Valor recebido</th><th style="text-align:right">Imposto</th>'+
+    '<th style="text-align:right">Valor recebido</th><th style="text-align:right">Imposto</th><th style="text-align:right">Indicação / colab.</th>'+
     '<th style="text-align:right">Base</th><th style="text-align:right">Comissão</th></tr></thead>'+
-    '<tbody>'+linhas+'</tbody>'+
-    '<tfoot><tr><td colspan="3">TOTAL</td><td style="text-align:right">'+fmt(totalBruto)+'</td><td></td>'+
+    '<tbody>'+(linhas||'<tr><td colspan="8" style="text-align:center;color:#999">Nenhum recebimento comissionável entrou ainda neste mês.</td></tr>')+'</tbody>'+
+    '<tfoot><tr><td colspan="3">TOTAL</td><td style="text-align:right">'+fmt(totalBruto)+'</td><td></td><td></td>'+
     '<td style="text-align:right">'+fmt(totalBase)+'</td><td style="text-align:right">'+fmt(total)+'</td></tr></tfoot></table>'+
-  '<div class="nota"><strong>Como o valor é calculado:</strong> sobre cada valor recebido descontamos o imposto e, quando houver, a indicação. '+
+  tabelaPrev+
+  '<div class="nota"><strong>Como o valor é calculado:</strong> sobre cada valor recebido descontamos o imposto e, quando houver, a indicação e os colaboradores externos do projeto. '+
     'O resultado é a base de cálculo, e a comissão corresponde a '+(b.percentual*100).toFixed(2).replace('.',',')+'% dessa base. '+
     'A comissão acompanha o recebimento: só entra aqui o que foi efetivamente recebido no mês.</div>'+
   '<div class="footer">Emitido em '+new Date().toLocaleDateString('pt-BR')+' &middot; Sistema Financeiro DellaSá</div>'+
@@ -5692,6 +5710,7 @@ function colabsDoMes(all,cfg,mes){
       const c=d.colab; if(c.pag_modo!=='acompanha'||comValorCheio[c.id])return;
       const r=mapa[c.id]=mapa[c.id]||{colab:c,proj:ctx.projByKey[k],valor:0,itens:[]};
       r.valor+=d.valor; r.itens.push(x.desc);
+      (r.det=r.det||[]).push({desc:x.desc,parte:x.parte,data:x.data_pagamento||x.venc,bruto,imposto,valor:d.valor});
     });
   });
   return Object.values(mapa).map(r=>({...r,valor:Math.round(r.valor*100)/100}));
@@ -5717,6 +5736,60 @@ function situacaoColabsMes(all,cfg,mes){
     linhas.push({colab:c,proj:ctx.projByKey[chaveColab(c)],valor,lanc,estado:lanc?(lanc.status==='pago'?'pago':'ok'):'nao_lancado',modo:'data'});
   }));
   return linhas.sort((a,b)=>a.colab.nome.localeCompare(b.colab.nome));
+}
+
+async function relatorioColaborador(colabId){
+  const mes=currentMes;
+  const all=await getData();
+  await prepararCtxComissao(all);
+  const cfg=await getComConfig();
+  const linha=situacaoColabsMes(all,cfg,mes).find(r=>r.colab.id===colabId);
+  if(!linha){showToast('Nada deste colaborador em '+getMesLabel(mes)+'.');return;}
+  const c=linha.colab;
+  const forma=c.forma==='pct'?((+(c.pct*100).toFixed(2))+'% sobre '+(c.base_pct==='bruto'?'o valor bruto recebido':'o valor recebido menos impostos')):(fmt(c.valor)+' (valor fixo do projeto)');
+  let corpo;
+  if(linha.modo==='data'){
+    corpo='<table><thead><tr><th>Projeto</th><th style="text-align:center">Pagamento em</th><th style="text-align:right">Valor</th></tr></thead><tbody>'+
+      '<tr><td>'+escH(linha.proj||'—')+'</td><td style="text-align:center">'+fmtDate(c.pag_data)+'</td><td style="text-align:right;font-weight:600">'+fmt(linha.valor)+'</td></tr></tbody></table>';
+  } else {
+    const det=linha.det||[];
+    corpo='<table><thead><tr><th>Recebimento do cliente</th><th>Cliente</th><th style="text-align:center">Recebido em</th>'+
+      '<th style="text-align:right">Valor recebido</th>'+(c.forma==='pct'&&c.base_pct!=='bruto'?'<th style="text-align:right">Imposto</th>':'')+'<th style="text-align:right">Sua parte</th></tr></thead><tbody>'+
+      det.map(d=>'<tr><td>'+escH(d.desc)+'</td><td>'+escH(d.parte||'—')+'</td><td style="text-align:center">'+fmtDate(d.data)+'</td>'+
+        '<td style="text-align:right">'+fmt(d.bruto)+'</td>'+(c.forma==='pct'&&c.base_pct!=='bruto'?'<td style="text-align:right">-'+fmt(d.imposto)+'</td>':'')+
+        '<td style="text-align:right;font-weight:600">'+fmt(d.valor)+'</td></tr>').join('')+
+      '</tbody><tfoot><tr><td colspan="'+(c.forma==='pct'&&c.base_pct!=='bruto'?5:4)+'">TOTAL</td><td style="text-align:right">'+fmt(linha.valor)+'</td></tr></tfoot></table>';
+  }
+  const titulo=c.tipo==='indicacao'?'Demonstrativo de Indicação':'Demonstrativo de Pagamento — Colaborador';
+  const win=window.open('','_blank');
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+escH(c.nome)+' — '+getMesLabel(mes)+'</title>'+
+  '<style>'+
+  'body{font-family:Arial,sans-serif;max-width:860px;margin:40px auto;padding:0 24px;color:#1A1814;font-size:13px}'+
+  'h1{font-size:19px;color:#2A5C45;margin-bottom:4px}'+
+  '.sub{color:#777;font-size:12px;margin-bottom:22px}'+
+  '.destaque{background:#E8F2ED;border:1px solid #2A5C45;border-radius:8px;padding:16px 20px;margin-bottom:22px}'+
+  '.destaque .rot{font-size:11px;color:#2A5C45;text-transform:uppercase;letter-spacing:.5px}'+
+  '.destaque .val{font-size:26px;font-weight:700;color:#2A5C45;font-family:monospace}'+
+  'table{width:100%;border-collapse:collapse;margin-bottom:18px}'+
+  'th{background:#F5F4F0;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;color:#666;border-bottom:2px solid #ddd}'+
+  'td{padding:8px 10px;border-bottom:1px solid #eee;font-size:12px}'+
+  'tfoot td{font-weight:700;background:#F5F4F0;border-top:2px solid #2A5C45}'+
+  '.nota{font-size:11px;color:#777;line-height:1.7;padding:12px 16px;background:#FAFAF8;border-radius:6px}'+
+  '.footer{margin-top:30px;padding-top:14px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center}'+
+  '@media print{body{margin:0}}'+
+  '</style></head><body>'+
+  '<h1>'+titulo+' — '+escH(c.nome)+'</h1>'+
+  '<div class="sub">DellaSá Estruturas Ltda &middot; Projeto: '+escH(linha.proj||'—')+' &middot; Referência: '+getMesLabel(mes)+'</div>'+
+  '<div class="destaque"><div class="rot">Valor a receber</div><div class="val">'+fmt(linha.valor)+'</div>'+
+    '<div style="font-size:11px;color:#2A5C45;margin-top:6px">'+forma+(c.servico?' &middot; '+escH(c.servico):'')+'</div></div>'+
+  corpo+
+  '<div class="nota">'+(linha.modo==='data'
+    ?'Pagamento combinado em parcela única na data indicada.'
+    :'O pagamento acompanha os recebimentos do cliente: entra aqui a parte proporcional ao que foi efetivamente recebido no mês.')+'</div>'+
+  '<div class="footer">Emitido em '+new Date().toLocaleDateString('pt-BR')+' &middot; Sistema Financeiro DellaSá</div>'+
+  '</body></html>');
+  win.document.close();
+  win.onload=()=>{setTimeout(()=>win.print(),400);};
 }
 
 async function gerarLancamentosColabs(){
