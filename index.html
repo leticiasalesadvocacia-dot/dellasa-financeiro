@@ -211,6 +211,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i><span class="nav-label"> Proj. Pausados</span></button>
       <button class="nav-item" onclick="showPage('cartoes')" id="nav-cartoes"><i class="ti ti-credit-card"></i><span class="nav-label"> Cartões</span></button>
       <button class="nav-item" onclick="showPage('comissoes')" id="nav-comissoes"><i class="ti ti-users-group"></i><span class="nav-label"> Comissões</span></button>
+      <button class="nav-item" onclick="showPage('impostos')" id="nav-impostos"><i class="ti ti-receipt-tax"></i><span class="nav-label"> Impostos</span></button>
       <button class="nav-item" onclick="showPage('relatorios')" id="nav-relatorios"><i class="ti ti-sparkles"></i><span class="nav-label"> Relatórios</span></button>
       <button class="nav-item" onclick="showPage('historico')" id="nav-historico"><i class="ti ti-history"></i><span class="nav-label"> Histórico</span></button>
     </nav>
@@ -324,10 +325,14 @@ if (sessionStorage.getItem('ds_auth') === '1') {
         </select>
       </div>
     </div>
-    <div class="form-row">
+    <div class="form-row" style="grid-template-columns:1fr 1fr 1fr">
       <div class="form-group">
         <label class="form-label">Nº NF / Nota Fiscal</label>
-        <input class="form-input" id="f-nf" placeholder="Ex: NF-00142" />
+        <input class="form-input" id="f-nf" placeholder="Ex: NF-00142" oninput="nfDigitada()" />
+      </div>
+      <div class="form-group" id="box-nf-emissao">
+        <label class="form-label">Emissão da NF</label>
+        <input class="form-input" id="f-nf-emissao" type="date" title="Define a competência do Simples Nacional" />
       </div>
       <div class="form-group">
         <label class="form-label">Nº Contrato</label>
@@ -1184,7 +1189,9 @@ function localToDb(item) {
     comissao_base_paga: numAj(item.comissao_base_paga),
     imposto_pct: (item.imposto_pct===''||item.imposto_pct===null||item.imposto_pct===undefined)?null:numAj(item.imposto_pct),
     comissao_ref: item.comissao_ref||null,
-    cartao_ref: item.cartao_ref||null
+    cartao_ref: item.cartao_ref||null,
+    nf_emissao: item.nf_emissao||null,
+    imposto_ref: item.imposto_ref||null
   };
 }
 
@@ -1207,13 +1214,16 @@ function dbToLocal(row) {
     comissao_base_paga: parseFloat(row.comissao_base_paga)||0,
     imposto_pct: (row.imposto_pct===null||row.imposto_pct===undefined)?null:parseFloat(row.imposto_pct),
     comissao_ref: row.comissao_ref||null,
-    cartao_ref: row.cartao_ref||null
+    cartao_ref: row.cartao_ref||null,
+    nf_emissao: row.nf_emissao||null,
+    imposto_ref: row.imposto_ref||null
   };
 }
 
 async function addItem(item) {
   await db('insert', 'lancamentos', localToDb(item));
   invalidateCache();
+  impMarcarSujo(item);
 }
 
 async function updateItem(id, item) {
@@ -1222,11 +1232,14 @@ async function updateItem(id, item) {
   const merged = {...existing, ...item};
   await db('update', 'lancamentos', localToDb(merged));
   invalidateCache();
+  impMarcarSujo(merged);
 }
 
 async function delItem(id) {
+  const antes = _cache ? _cache.find(x => x.id === id) : null;
   await db('delete', 'lancamentos', {id});
   invalidateCache();
+  impMarcarSujo(antes);
 }
 
 // Metas
@@ -1455,7 +1468,7 @@ function showPage(p){
   currentPage=p;tblStatus='todos';tblSearch='';tblDe='';tblAte='';tblDia='';tblModoData='mes';
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('nav-'+p)?.classList.add('active');
-  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',cartoes:'Cartões de Crédito',comissoes:'Comissões da Equipe',historico:'Histórico'};
+  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',cartoes:'Cartões de Crédito',comissoes:'Comissões da Equipe',impostos:'Impostos — Simples Nacional',historico:'Histórico'};
   document.getElementById('page-title').textContent=titles[p]||p;
   document.getElementById('btn-add').style.display=(p==='dashboard'||p==='receber'||p==='pagar'||p==='orcamentos'||p==='pausados')?'':'none';
   if(p==='orcamentos') document.getElementById('btn-add').onclick=()=>openOrcamento();
@@ -1472,7 +1485,7 @@ function openAdd(){
   const tipoInicial = currentPage==='pagar'?'pagar':'receber';
   document.getElementById('f-tipo').value = tipoInicial;
   atualizarCategorias(tipoInicial);
-  ['f-desc','f-valor','f-parte','f-nf','f-contrato','f-obs','f-desconto','f-juros','f-multa'].forEach(id=>document.getElementById(id).value='');
+  ['f-desc','f-valor','f-parte','f-nf','f-nf-emissao','f-contrato','f-obs','f-desconto','f-juros','f-multa'].forEach(id=>document.getElementById(id).value='');
   atualizarValorEfetivo();
   document.getElementById('f-comissionavel').checked=false;
   document.getElementById('f-tem-indicacao').checked=false;
@@ -1505,6 +1518,7 @@ async function openEdit(id){
   atualizarCategorias(item.tipo, item.cat);
   document.getElementById('f-status').value=item.status;
   document.getElementById('f-nf').value=item.nf||'';
+  document.getElementById('f-nf-emissao').value=item.nf_emissao||'';
   document.getElementById('f-contrato').value=item.contrato||'';
   document.getElementById('f-obs').value=item.obs||'';
   document.getElementById('f-desconto').value=item.desconto||'';
@@ -1558,6 +1572,8 @@ function atualizarVisibilidadeComissao(){
   if(b)b.style.display=mostrar?'flex':'none';
   const bc=document.getElementById('box-colabs-lanc');
   if(bc)bc.style.display=mostrar?'':'none';
+  const bn=document.getElementById('box-nf-emissao');
+  if(bn)bn.style.display=mostrar?'':'none';
   if(!mostrar){
     const c=document.getElementById('f-comissionavel');
     if(c)c.checked=false;
@@ -1659,6 +1675,7 @@ async function salvarLancamento(){
     cat:document.getElementById('f-cat').value,
     status:document.getElementById('f-status').value,
     nf:document.getElementById('f-nf').value.trim(),
+    nf_emissao:(document.getElementById('f-nf').value.trim()&&document.getElementById('f-tipo').value==='receber')?(document.getElementById('f-nf-emissao').value||null):null,
     contrato:document.getElementById('f-contrato').value.trim(),
     obs:document.getElementById('f-obs').value.trim(),
     comissionavel:document.getElementById('f-comissionavel').checked,
@@ -1685,6 +1702,7 @@ async function salvarLancamento(){
       const valParcela=elVal?parseFloat(elVal.value)||0:valor/n;
       await addItem({...base,id:genId(),valor:valParcela,venc:vencP,mes:vencP.slice(0,7),
         desconto:0,juros:0,multa:0,
+        nf:i===0?base.nf:'',nf_emissao:i===0?base.nf_emissao:null,
         desc:`${desc} (${i+1}/${n})`,grupoId,parcela:i+1,totalParcelas:n,status:'pendente'});
     }
     if(ehReceber)msgColab=await persistirColabsLanc({grupoId});
@@ -1698,6 +1716,7 @@ async function salvarLancamento(){
       const vencR=d.toISOString().slice(0,10);
       await addItem({...base,id:genId(),valor,venc:vencR,mes:vencR.slice(0,7),
         desconto:0,juros:0,multa:0,
+        nf:i===0?base.nf:'',nf_emissao:i===0?base.nf_emissao:null,
         status:'pendente',grupoRecId,recorrencia:i+1,totalRecorrencias:nMeses+1,
         desc:`${desc}`});
     }
@@ -1776,6 +1795,7 @@ async function parcelarExistente(base,venc,valor,desc){
   for(let i=1;i<n;i++){
     const vencP=addDias(venc,i*intervalo);
     await addItem({...base,id:genId(),orc_id:orig.orc_id||null,
+      nf:'',nf_emissao:null,
       desc:descBase+' ('+(i+1)+'/'+n+')',
       valor:valores[i],venc:vencP,mes:vencP.slice(0,7),
       desconto:0,juros:0,multa:0,
@@ -1811,7 +1831,7 @@ function irmaosDoGrupo(todos,orig,incluirEste){
 }
 
 function diffEdicao(orig,novo){
-  const campos=['tipo','parte','cat','nf','contrato','obs'];
+  const campos=['tipo','parte','cat','contrato','obs']; // NF é de cada parcela — não propaga
   const rotulos={tipo:'Tipo',parte:'Cliente/Fornecedor',cat:'Categoria',nf:'NF',contrato:'Contrato',obs:'Observações'};
   const patch={},labels=[];
   campos.forEach(c=>{
@@ -2363,6 +2383,7 @@ function showLoading(){document.getElementById('content').innerHTML='<div style=
 async function render(){
   showLoading();
   try{
+    if(_impDirty&&!_impSyncing){ try{ await syncImpostos(); }catch(e){ console.error('impostos',e); } }
     const all=await getData(), mes=currentMes;
     _cacheAllForFilter=all;
     const doMes=all.filter(x=>x.mes===mes);
@@ -2379,6 +2400,7 @@ async function render(){
     else if(currentPage==='pausados')await renderPausados();
     else if(currentPage==='cartoes')await renderCartoes(all);
     else if(currentPage==='comissoes')await renderComissoes(all);
+    else if(currentPage==='impostos')await renderImpostos(all);
     else if(currentPage==='relatorios')renderRelatorios();
     else if(currentPage==='historico')renderHistorico(all);
   }catch(e){
@@ -6202,6 +6224,584 @@ function exportarRelPDF(){
 }
 
 /* ========== FIM RELATÓRIOS ========== */
+
+
+/* ========== IMPOSTOS — SIMPLES NACIONAL (DAS) ========== */
+// Regra: competência = mês da emissão da NF (A Receber com Nº de NF preenchido).
+// Para cada competência a partir do "início" configurado, o sistema mantém UM lançamento
+// em A Pagar ("Simples Nacional (DAS)"), vencendo no dia configurado do mês seguinte.
+// Enquanto a guia não chega, o valor é estimado com a alíquota real da última guia confirmada.
+// Ao confirmar a guia (aqui ou editando o valor direto em A Pagar), o valor real passa a valer
+// e vira a referência das próximas estimativas.
+
+let _impDirty = true;      // precisa sincronizar antes do próximo render
+let _impSyncing = false;
+let _impConfirmComp = null;
+
+const SIMPLES_TABELAS = {
+  3: [[180000,0.06,0],[360000,0.112,9360],[720000,0.135,17640],[1800000,0.16,35640],[3600000,0.21,125640],[4800000,0.33,648000]],
+  5: [[180000,0.155,0],[360000,0.18,4500],[720000,0.195,9900],[1800000,0.205,17100],[3600000,0.23,62100],[4800000,0.305,540000]]
+};
+
+const r2 = v => Math.round((v||0)*100)/100;
+const fmtPct = v => (v===null||v===undefined||isNaN(v)) ? '—' : (v*100).toFixed(2).replace('.',',')+'%';
+const mesToInt = m => parseInt((m||'').replace('-',''),10)||0;
+const intToMes = n => { const s=String(Math.round(n||0)); return s.length===6 ? s.slice(0,4)+'-'+s.slice(4) : null; };
+
+function impMarcarSujo(item){
+  if(_impSyncing) return;
+  if(!item){ _impDirty=true; return; }
+  if(item.tipo==='receber' || item.imposto_ref) _impDirty=true;
+}
+
+async function getImpCfg(){
+  const c = await getComConfig();
+  return {
+    inicio: c.das_inicio ? intToMes(c.das_inicio) : null,
+    dia: c.das_dia ? Math.round(c.das_dia) : 20,
+    anexo: (c.das_anexo===5) ? 5 : 3,
+    padrao: (c.das_aliq_padrao!==undefined && !isNaN(c.das_aliq_padrao)) ? c.das_aliq_padrao : (c.imposto||0.094),
+    comissao: c.imposto||0
+  };
+}
+
+async function getImpostosMes(){
+  const rows = await db('select','impostos_mes');
+  const m = {};
+  (rows||[]).forEach(r=>{
+    m[r.competencia] = {
+      competencia: r.competencia,
+      lanc_id: r.lanc_id||null,
+      base: r.base===null?null:parseFloat(r.base),
+      aliquota: r.aliquota===null?null:parseFloat(r.aliquota),
+      valor_lancado: r.valor_lancado===null?null:parseFloat(r.valor_lancado),
+      valor_real: r.valor_real===null?null:parseFloat(r.valor_real),
+      confirmado: !!r.confirmado,
+      rbt12: r.rbt12===null?null:parseFloat(r.rbt12),
+      obs: r.obs||''
+    };
+  });
+  return m;
+}
+
+async function saveImpostoMes(rec){
+  await db('upsert','impostos_mes',{
+    competencia: rec.competencia,
+    lanc_id: rec.lanc_id||null,
+    base: (rec.base===undefined||rec.base===null)?null:r2(rec.base),
+    aliquota: (rec.aliquota===undefined||rec.aliquota===null||isNaN(rec.aliquota))?null:rec.aliquota,
+    valor_lancado: (rec.valor_lancado===undefined||rec.valor_lancado===null)?null:r2(rec.valor_lancado),
+    valor_real: (rec.valor_real===undefined||rec.valor_real===null)?null:r2(rec.valor_real),
+    confirmado: !!rec.confirmado,
+    rbt12: (rec.rbt12===undefined||rec.rbt12===null||isNaN(rec.rbt12))?null:r2(rec.rbt12),
+    obs: rec.obs||'',
+    updated_at: new Date().toISOString()
+  });
+}
+
+// valor considerado na nota: valor do título menos desconto concedido
+const valorNF = x => Math.max(0, r2((parseFloat(x.valor)||0) - numAj(x.desconto)));
+const compNF = x => ((x.nf_emissao||x.venc||'')+'').slice(0,7);
+
+function impBasesPorComp(all){
+  const m = {};
+  all.filter(x=>x.tipo==='receber' && (x.nf||'').trim()).forEach(x=>{
+    const c = compNF(x); if(!c) return;
+    if(!m[c]) m[c] = {base:0, itens:[]};
+    m[c].base = r2(m[c].base + valorNF(x));
+    m[c].itens.push(x);
+  });
+  return m;
+}
+
+// alíquota usada na estimativa: a real da guia confirmada mais recente antes da competência
+function impAliqEstimada(comp, recs, cfg){
+  const conf = Object.values(recs)
+    .filter(r=>r.confirmado && r.competencia<comp && r.base>0 && r.valor_real!==null)
+    .sort((a,b)=>b.competencia.localeCompare(a.competencia));
+  if(conf.length){
+    return {aliq: conf[0].valor_real/conf[0].base, origem: 'guia de '+getMesLabel(conf[0].competencia)};
+  }
+  return {aliq: cfg.padrao, origem: 'alíquota padrão'};
+}
+
+const dasVenc = (comp, dia) => mesParaData(mesAdd(comp,1), dia||20);
+const ehDescAuto = d => /^Simples Nacional \(DAS\)/.test(d||'');
+const descDas = (comp, estimado) => 'Simples Nacional (DAS) — competência '+getMesLabel(comp)+(estimado?' (estimado)':'');
+
+async function syncImpostos(){
+  if(_impSyncing) return;
+  _impSyncing = true; _impDirty = false;
+  const avisos = [];
+  try{
+    const cfg = await getImpCfg();
+    if(!cfg.inicio){
+      await saveComConfig('das_inicio', mesToInt(_nowMes));
+      cfg.inicio = _nowMes;
+    }
+    const all = await getData();
+    const recs = await getImpostosMes();
+    const bases = impBasesPorComp(all);
+    const comps = new Set(Object.keys(bases).concat(Object.keys(recs)));
+    all.forEach(x=>{ if(x.tipo==='pagar' && x.imposto_ref) comps.add(x.imposto_ref); });
+    const lista = Array.from(comps).filter(c=>c && c>=cfg.inicio).sort();
+
+    for(const comp of lista){
+      const b = bases[comp] ? bases[comp].base : 0;
+      const rec = recs[comp] || {competencia:comp, confirmado:false, valor_lancado:null, valor_real:null};
+      let mudou = !recs[comp];
+      let lanc = all.find(x=>x.tipo==='pagar' && x.imposto_ref===comp);
+
+      // 1) Já existe um "Simples Nacional" lançado à mão no mês do vencimento? vincula em vez de duplicar
+      if(!lanc && b>0 && !rec.lanc_id){
+        const mesDas = mesAdd(comp,1);
+        const cand = all.find(x=>x.tipo==='pagar' && !x.imposto_ref && x.mes===mesDas &&
+          /simples\s*nacional|\bdas\b/i.test((x.desc||'')+' '+(x.parte||'')));
+        if(cand){
+          await updateItem(cand.id,{imposto_ref:comp});
+          lanc = {...cand, imposto_ref:comp};
+          rec.lanc_id = cand.id;
+          const quitado = ['pago','recebido','parcial'].includes(cand.status);
+          if(quitado || comp < _nowMes){
+            rec.confirmado = true; rec.valor_real = valEf(cand); rec.base = b;
+            rec.aliquota = b>0 ? rec.valor_real/b : null; rec.valor_lancado = cand.valor;
+          } else {
+            rec.valor_lancado = cand.valor;
+          }
+          mudou = true;
+          avisos.push('"'+(cand.desc||'Simples Nacional')+'" de '+getMesLabel(mesDas)+' foi vinculado à competência '+getMesLabel(comp));
+        }
+      }
+
+      const quitado = !!(lanc && ['pago','recebido','parcial'].includes(lanc.status));
+
+      // 2) DAS já pago em A Pagar → vale como valor real
+      if(lanc && quitado && !rec.confirmado){
+        rec.confirmado = true; rec.valor_real = valEf(lanc); rec.base = b;
+        rec.aliquota = b>0 ? rec.valor_real/b : null; mudou = true;
+      }
+      // 3) Valor editado à mão em A Pagar → é o valor da guia
+      else if(lanc && !quitado && !rec.confirmado && rec.valor_lancado!==null &&
+              Math.abs((parseFloat(lanc.valor)||0) - rec.valor_lancado) > 0.005){
+        rec.confirmado = true; rec.valor_real = parseFloat(lanc.valor)||0; rec.base = b;
+        rec.aliquota = b>0 ? rec.valor_real/b : null; rec.valor_lancado = rec.valor_real; mudou = true;
+        if(ehDescAuto(lanc.desc)) await updateItem(lanc.id,{desc:descDas(comp,false)});
+        avisos.push('DAS de '+getMesLabel(comp)+' confirmado com '+fmt(rec.valor_real)+' (valor editado em A Pagar)');
+      }
+
+      if(rec.confirmado){
+        if(lanc && !quitado){
+          const up = {};
+          if(Math.abs((parseFloat(lanc.valor)||0) - rec.valor_real) > 0.005) up.valor = rec.valor_real;
+          if(ehDescAuto(lanc.desc) && lanc.desc!==descDas(comp,false)) up.desc = descDas(comp,false);
+          if(Object.keys(up).length){ await updateItem(lanc.id, up); rec.valor_lancado = rec.valor_real; mudou = true; }
+        }
+      } else {
+        const est = impAliqEstimada(comp, recs, cfg);
+        const v = r2(b*est.aliq);
+        if(b<=0){
+          // sem nota na competência: remove só o que o próprio sistema lançou e ninguém mexeu
+          if(lanc && !quitado && rec.valor_lancado!==null && Math.abs((parseFloat(lanc.valor)||0)-rec.valor_lancado)<=0.005 && ehDescAuto(lanc.desc)){
+            await delItem(lanc.id);
+            rec.lanc_id = null; rec.valor_lancado = null; mudou = true;
+          }
+          if(rec.base!==0){ rec.base = 0; mudou = true; }
+        } else if(!lanc){
+          const venc = dasVenc(comp, cfg.dia);
+          const id = genId();
+          await addItem({id, tipo:'pagar', desc:descDas(comp,true), valor:v, venc, mes:venc.slice(0,7),
+            parte:'Receita Federal', cat:'Impostos', status:'pendente', nf:'', contrato:'',
+            obs:'Lançado automaticamente pela aba Impostos. Quando a guia chegar, confirme o valor real lá ou edite o valor aqui.',
+            imposto_ref:comp});
+          rec.lanc_id = id; rec.valor_lancado = v; rec.base = b; rec.aliquota = est.aliq; mudou = true;
+        } else {
+          if(Math.abs((parseFloat(lanc.valor)||0) - v) > 0.005){
+            await updateItem(lanc.id,{valor:v});
+            rec.valor_lancado = v; mudou = true;
+          }
+          if(rec.base!==b || rec.aliquota!==est.aliq || rec.lanc_id!==lanc.id){
+            rec.base = b; rec.aliquota = est.aliq; rec.lanc_id = lanc.id; mudou = true;
+          }
+        }
+      }
+      if(mudou) await saveImpostoMes(rec);
+      recs[comp] = rec;
+    }
+  } catch(e){
+    console.error('syncImpostos', e);
+  } finally {
+    _impSyncing = false;
+  }
+  if(avisos.length) showToast(avisos.join(' · '), 7000);
+}
+
+// ---------- Simulador de faixa ----------
+function simplesCalc(rbt12, anexo){
+  const t = SIMPLES_TABELAS[anexo] || SIMPLES_TABELAS[3];
+  if(!rbt12 || rbt12<=0) return null;
+  let i = t.findIndex(f=>rbt12<=f[0]);
+  if(i<0) i = t.length-1;
+  const f = t[i];
+  const ef = (rbt12*f[1] - f[2]) / rbt12;
+  return {faixa:i+1, nominal:f[1], deducao:f[2], efetiva:ef, limite:f[0], falta:Math.max(0,f[0]-rbt12), ultima:i===t.length-1};
+}
+
+function impSimular(){
+  const el = document.getElementById('imp-sim-rbt');
+  const out = document.getElementById('imp-sim-out');
+  if(!el || !out) return;
+  const anexo = parseInt(document.getElementById('imp-sim-anexo').value,10)||3;
+  const r = parseFloat(el.value)||0;
+  const c = simplesCalc(r, anexo);
+  if(!c){ out.innerHTML = '<div style="color:var(--text3);font-size:12px">Informe o RBT12 (receita bruta dos últimos 12 meses — aparece no extrato do PGDAS que a contabilidade envia).</div>'; return; }
+  const passos = [50000,100000,200000,400000].map(s=>{
+    const p = simplesCalc(r+s, anexo);
+    return '<td class="td-right td-mono">'+(p?fmtPct(p.efetiva):'—')+'</td>';
+  }).join('');
+  out.innerHTML =
+    '<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin:12px 0">'+
+      '<div class="metric-card"><div class="metric-label">Faixa atual</div><div class="metric-value">'+c.faixa+'ª</div><div class="metric-sub">nominal '+fmtPct(c.nominal)+' · dedução '+fmt(c.deducao)+'</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Alíquota efetiva pela tabela</div><div class="metric-value blue">'+fmtPct(c.efetiva)+'</div><div class="metric-sub">(RBT12 × nominal − dedução) ÷ RBT12</div></div>'+
+      '<div class="metric-card"><div class="metric-label">'+(c.ultima?'Limite do Simples':'Até a próxima faixa')+'</div><div class="metric-value red">'+fmt(c.falta)+'</div><div class="metric-sub">teto da faixa: '+fmt(c.limite)+'</div></div>'+
+    '</div>'+
+    '<table><thead><tr><th>Se o RBT12 crescer</th><th class="td-right">+ R$ 50 mil</th><th class="td-right">+ R$ 100 mil</th><th class="td-right">+ R$ 200 mil</th><th class="td-right">+ R$ 400 mil</th></tr></thead>'+
+    '<tbody><tr><td>Alíquota efetiva</td>'+passos+'</tr></tbody></table>';
+}
+
+// ---------- Tela ----------
+async function renderImpostos(all){
+  let recs;
+  try{ recs = await getImpostosMes(); }
+  catch(e){
+    document.getElementById('content').innerHTML =
+      '<div style="padding:24px;background:#FFF8E1;border:1px solid #FFD54F;border-radius:10px;color:#7B6200;font-size:13px">'+
+      '<strong>Falta criar a tabela de impostos no banco.</strong><br>Rode o script SQL desta atualização no Supabase (Run without RLS) e recarregue a página.</div>';
+    return;
+  }
+  const cfg = await getImpCfg();
+  const comp = currentMes;
+  const bases = impBasesPorComp(all);
+  const b = bases[comp] ? bases[comp].base : 0;
+  const notas = (bases[comp] ? bases[comp].itens : []).slice().sort((a,b2)=>(compNF(a)+(a.nf_emissao||'')).localeCompare(compNF(b2)+(b2.nf_emissao||'')));
+  const rec = recs[comp] || null;
+  const lanc = all.find(x=>x.tipo==='pagar' && x.imposto_ref===comp);
+  const quitado = !!(lanc && ['pago','recebido','parcial'].includes(lanc.status));
+  const est = impAliqEstimada(comp, recs, cfg);
+  const confirmado = !!(rec && rec.confirmado);
+  const valorDas = confirmado ? rec.valor_real : r2(b*est.aliq);
+  const aliqMes = confirmado ? (b>0 ? rec.valor_real/b : rec.aliquota) : est.aliq;
+  const antesDoInicio = comp < (cfg.inicio||_nowMes);
+
+  // receitas do mês sem nota (informativo)
+  const semNF = all.filter(x=>x.tipo==='receber' && !(x.nf||'').trim() && x.mes===comp);
+  const notasSemData = all.filter(x=>x.tipo==='receber' && (x.nf||'').trim() && !x.nf_emissao);
+
+  // histórico
+  const comps = Array.from(new Set(Object.keys(bases).concat(Object.keys(recs)))).filter(Boolean).sort().reverse();
+  const linhas = comps.slice(0,24).map(c=>{
+    const r = recs[c];
+    const bb = bases[c] ? bases[c].base : 0;
+    const l = all.find(x=>x.tipo==='pagar' && x.imposto_ref===c);
+    const conf = !!(r && r.confirmado);
+    const pago = !!(l && ['pago','recebido','parcial'].includes(l.status));
+    const v = conf ? r.valor_real : (c>=(cfg.inicio||_nowMes) ? r2(bb*impAliqEstimada(c,recs,cfg).aliq) : null);
+    const al = conf ? ((r.base||bb)>0 ? r.valor_real/(r.base||bb) : null) : (c>=(cfg.inicio||_nowMes) ? impAliqEstimada(c,recs,cfg).aliq : null);
+    let sit, cor;
+    if(pago){ sit='pago'; cor='var(--accent)'; }
+    else if(conf){ sit='guia confirmada'; cor='var(--blue, #1A4A7A)'; }
+    else if(c<(cfg.inicio||_nowMes)){ sit='antes da provisão automática'; cor='var(--text3)'; }
+    else { sit='estimado'; cor='#9C5700'; }
+    const divergeBase = conf && r.base!==null && Math.abs((r.base||0)-bb)>0.01;
+    return '<tr style="cursor:pointer'+(c===comp?';background:var(--surface2)':'')+'" onclick="changeMesImp(\''+c+'\')">'+
+      '<td style="font-weight:'+(c===comp?'700':'500')+'">'+getMesLabel(c)+'</td>'+
+      '<td class="td-right td-mono">'+fmt(bb)+(divergeBase?' <i class="ti ti-alert-triangle" title="As notas mudaram depois da confirmação (base na guia: '+fmt(r.base)+')" style="color:#9C5700"></i>':'')+'</td>'+
+      '<td class="td-right td-mono">'+fmtPct(al)+'</td>'+
+      '<td class="td-right td-mono" style="font-weight:600">'+(v===null?'—':fmt(v))+'</td>'+
+      '<td class="td-mono">'+(l?fmtDate(l.venc):(c>=(cfg.inicio||_nowMes)?fmtDate(dasVenc(c,cfg.dia)):'—'))+'</td>'+
+      '<td><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;color:'+cor+';background:var(--surface2)">'+sit+'</span></td>'+
+    '</tr>';
+  }).join('');
+
+  // total do ano da competência selecionada
+  const ano = comp.slice(0,4);
+  let totAnoReal=0, totAnoEst=0;
+  comps.filter(c=>c.slice(0,4)===ano).forEach(c=>{
+    const r = recs[c];
+    if(r && r.confirmado) totAnoReal += r.valor_real||0;
+    else if(c>=(cfg.inicio||_nowMes)) totAnoEst += r2((bases[c]?bases[c].base:0)*impAliqEstimada(c,recs,cfg).aliq);
+  });
+
+  // último RBT12 informado
+  const comRbt = Object.values(recs).filter(r=>r.rbt12>0).sort((a,b2)=>b2.competencia.localeCompare(a.competencia));
+  const ultRbt = comRbt.length ? comRbt[0] : null;
+
+  const confirmadas = Object.values(recs).filter(r=>r.confirmado && r.base>0 && r.valor_real!==null).sort((a,b2)=>a.competencia.localeCompare(b2.competencia));
+
+  const cardSituacao = antesDoInicio && !confirmado
+    ? '<div style="font-size:12px;color:var(--text3)">Esta competência é anterior ao início da provisão automática ('+getMesLabel(cfg.inicio||_nowMes)+'). Você pode registrar a guia só para histórico — nada é lançado em A Pagar.</div>'
+    : (lanc
+        ? '<div style="font-size:12px;color:var(--text2)">Em A Pagar: <strong>'+(lanc.desc||'')+'</strong> — '+fmt(valEf(lanc))+', vence '+fmtDate(lanc.venc)+' · '+(quitado?'<span style="color:var(--accent);font-weight:600">pago</span>':'pendente')+'</div>'
+        : '<div style="font-size:12px;color:var(--text3)">'+(b>0?'O lançamento em A Pagar será criado na próxima atualização da tela.':'Nenhuma nota emitida nesta competência — nada a lançar.')+'</div>');
+
+  const modal =
+    '<div id="modal-imp" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center">'+
+    '<div style="background:#fff;border-radius:16px;padding:28px;width:100%;max-width:440px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'+
+        '<h3 id="imp-m-titulo" style="font-size:17px;font-weight:700"></h3>'+
+        '<button onclick="fecharModalImp()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text3)">×</button></div>'+
+      '<div id="imp-m-sub" style="font-size:12px;color:var(--text3);margin-bottom:18px"></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
+        '<div><label class="form-label">Valor da guia (DAS)</label><input class="form-input" id="imp-m-valor" type="number" step="0.01"></div>'+
+        '<div><label class="form-label">RBT12 (opcional)</label><input class="form-input" id="imp-m-rbt" type="number" step="0.01" placeholder="do extrato do PGDAS"></div>'+
+        '<div style="grid-column:1/-1"><label class="form-label">Observação</label><input class="form-input" id="imp-m-obs" type="text" placeholder="Opcional"></div>'+
+      '</div>'+
+      '<div id="imp-m-aliq" style="margin-top:10px;font-size:12px;color:var(--accent)"></div>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">'+
+        '<button class="btn" onclick="fecharModalImp()">Cancelar</button>'+
+        '<button class="btn primary" onclick="salvarGuiaImp()"><i class="ti ti-check"></i> Confirmar guia</button></div>'+
+    '</div></div>'+
+    '<div id="modal-imp-cfg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center">'+
+    '<div style="background:#fff;border-radius:16px;padding:28px;width:100%;max-width:460px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px">'+
+        '<h3 style="font-size:17px;font-weight:700">Parâmetros dos impostos</h3>'+
+        '<button onclick="document.getElementById(\'modal-imp-cfg\').style.display=\'none\'" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text3)">×</button></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
+        '<div><label class="form-label">Provisão automática a partir de</label><input class="form-input" id="imp-c-inicio" type="month" value="'+(cfg.inicio||_nowMes)+'"></div>'+
+        '<div><label class="form-label">Dia de vencimento do DAS</label><input class="form-input" id="imp-c-dia" type="number" min="1" max="31" value="'+cfg.dia+'"></div>'+
+        '<div><label class="form-label">Alíquota padrão (%)</label><input class="form-input" id="imp-c-padrao" type="number" step="0.01" value="'+(cfg.padrao*100).toFixed(2)+'"></div>'+
+        '<div><label class="form-label">Anexo do simulador</label><select class="form-select" id="imp-c-anexo"><option value="3"'+(cfg.anexo===3?' selected':'')+'>Anexo III</option><option value="5"'+(cfg.anexo===5?' selected':'')+'>Anexo V</option></select></div>'+
+      '</div>'+
+      '<div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.5">A alíquota padrão só é usada enquanto nenhuma guia foi confirmada. Depois disso, a estimativa usa sempre a alíquota real da última guia. Competências anteriores ao início não geram lançamento em A Pagar (evita duplicar o que já foi lançado à mão).</div>'+
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">'+
+        '<button class="btn" onclick="document.getElementById(\'modal-imp-cfg\').style.display=\'none\'">Cancelar</button>'+
+        '<button class="btn primary" onclick="salvarCfgImp()"><i class="ti ti-check"></i> Salvar</button></div>'+
+    '</div></div>';
+
+  const ultConf = confirmadas.length ? confirmadas[confirmadas.length-1] : null;
+  const aliqUlt = ultConf ? ultConf.valor_real/ultConf.base : null;
+  const sugereComissao = aliqUlt!==null && Math.abs(aliqUlt-(cfg.comissao||0))>0.0005;
+
+  document.getElementById('content').innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
+      '<div style="font-size:12px;color:var(--text3)">Competência = mês de emissão da NF · DAS vence dia '+cfg.dia+' do mês seguinte</div>'+
+      '<button class="btn" onclick="document.getElementById(\'modal-imp-cfg\').style.display=\'flex\'" style="padding:6px 12px;font-size:12px"><i class="ti ti-settings"></i> Parâmetros</button>'+
+    '</div>'+
+    '<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:20px">'+
+      '<div class="metric-card"><div class="metric-label">Notas emitidas — '+getMesLabel(comp)+'</div><div class="metric-value">'+fmt(b)+'</div><div class="metric-sub">'+notas.length+' nota(s) na competência</div></div>'+
+      '<div class="metric-card"><div class="metric-label">DAS '+(confirmado?'(guia)':'(estimado)')+'</div><div class="metric-value red">'+fmt(valorDas)+'</div><div class="metric-sub">'+(confirmado?'valor real confirmado':'pela '+est.origem)+'</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Alíquota '+(confirmado?'efetiva real':'usada')+'</div><div class="metric-value blue">'+fmtPct(aliqMes)+'</div><div class="metric-sub">'+(aliqUlt!==null?'última guia: '+fmtPct(aliqUlt):'nenhuma guia confirmada ainda')+'</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Simples em '+ano+'</div><div class="metric-value">'+fmt(totAnoReal+totAnoEst)+'</div><div class="metric-sub">'+fmt(totAnoReal)+' em guias'+(totAnoEst>0.004?' + '+fmt(totAnoEst)+' estimado':'')+'</div></div>'+
+    '</div>'+
+
+    '<div class="table-wrap" style="margin-bottom:16px">'+
+      '<div class="table-header"><div class="table-title">Competência '+getMesLabel(comp)+'</div>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+          (confirmado
+            ? '<button class="btn" onclick="abrirGuiaImp(\''+comp+'\')" style="padding:5px 10px;font-size:12px"><i class="ti ti-edit"></i> Corrigir guia</button>'+
+              (quitado?'':'<button class="btn" onclick="desfazerGuiaImp(\''+comp+'\')" style="padding:5px 10px;font-size:12px"><i class="ti ti-arrow-back-up"></i> Voltar para estimado</button>')
+            : '<button class="btn primary" onclick="abrirGuiaImp(\''+comp+'\')" style="padding:5px 10px;font-size:12px"><i class="ti ti-file-check"></i> '+(antesDoInicio?'Registrar guia (histórico)':'Confirmar valor da guia')+'</button>')+
+        '</div></div>'+
+      '<div style="padding:14px 18px">'+cardSituacao+
+        (rec&&rec.obs?'<div style="font-size:12px;color:var(--text3);margin-top:6px">Obs.: '+rec.obs+'</div>':'')+
+        (rec&&rec.rbt12?'<div style="font-size:12px;color:var(--text3);margin-top:6px">RBT12 informado: '+fmt(rec.rbt12)+'</div>':'')+
+      '</div>'+
+    '</div>'+
+
+    (sugereComissao?
+      '<div style="padding:11px 14px;background:var(--accent-light);border-radius:8px;font-size:12px;color:var(--accent);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
+      '<span><i class="ti ti-info-circle"></i> A última guia saiu com <strong>'+fmtPct(aliqUlt)+'</strong>, mas as comissões ainda usam <strong>'+fmtPct(cfg.comissao)+'</strong> como padrão.</span>'+
+      '<button class="btn" onclick="aplicarAliqComissao('+aliqUlt+')" style="padding:4px 10px;font-size:11px">Usar '+fmtPct(aliqUlt)+' nas comissões</button></div>':'')+
+
+    (notasSemData.length?
+      '<div style="padding:11px 14px;background:#FFF8E1;border:1px solid #FFD54F;border-radius:8px;font-size:12px;color:#7B6200;margin-bottom:16px">'+
+      '<i class="ti ti-alert-triangle"></i> <strong>'+notasSemData.length+'</strong> recebimento(s) têm Nº de NF mas não têm data de emissão — para esses, o sistema usa o mês do vencimento como competência. Abra o lançamento e preencha a data de emissão se for diferente.</div>':'')+
+
+    '<div class="charts-row" style="grid-template-columns:1fr;margin-bottom:16px">'+
+      '<div class="chart-card"><div class="chart-title">Alíquota efetiva das guias e valor do DAS</div>'+
+      (confirmadas.length?'<div style="position:relative;height:220px"><canvas id="chart-imp"></canvas></div>':
+        '<div style="padding:30px;text-align:center;color:var(--text3);font-size:12px">O gráfico aparece quando houver guias confirmadas. Dá para registrar guias de meses anteriores para montar o histórico.</div>')+
+      '</div></div>'+
+
+    '<div class="table-wrap" style="margin-bottom:16px">'+
+      '<div class="table-header"><div class="table-title">Histórico por competência</div></div>'+
+      (linhas?'<table><thead><tr><th>Competência</th><th class="td-right">Notas emitidas</th><th class="td-right">Alíquota</th><th class="td-right">DAS</th><th>Vencimento</th><th>Situação</th></tr></thead><tbody>'+linhas+'</tbody></table>'
+        :'<div style="padding:30px;text-align:center;color:var(--text3);font-size:12px">Nenhuma nota emitida registrada ainda.</div>')+
+    '</div>'+
+
+    '<div class="table-wrap" style="margin-bottom:16px">'+
+      '<div class="table-header"><div class="table-title">Notas da competência '+getMesLabel(comp)+'</div></div>'+
+      (notas.length?'<table><thead><tr><th>Emissão</th><th>NF</th><th>Cliente</th><th>Descrição</th><th>Status</th><th class="td-right">Valor da nota</th></tr></thead><tbody>'+
+        notas.map(x=>'<tr style="cursor:pointer" onclick="openEdit(\''+x.id+'\')">'+
+          '<td class="td-mono">'+(x.nf_emissao?fmtDate(x.nf_emissao):'<span style="color:#9C5700" title="Sem data de emissão — usando o vencimento">'+fmtDate(x.venc)+' *</span>')+'</td>'+
+          '<td><span class="tag-nf">'+x.nf+'</span></td>'+
+          '<td>'+(x.parte||'')+'</td><td>'+(x.desc||'')+'</td>'+
+          '<td><span class="badge '+x.status+'">'+x.status+'</span></td>'+
+          '<td class="td-right td-mono">'+fmt(valorNF(x))+'</td></tr>').join('')+
+        '</tbody></table>'
+        :'<div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">Nenhuma nota com emissão em '+getMesLabel(comp)+'.</div>')+
+      (semNF.length?'<div style="padding:10px 16px;font-size:11px;color:var(--text3);border-top:1px solid var(--border)">'+semNF.length+' recebimento(s) de '+getMesLabel(comp)+' estão sem Nº de NF e não entram no cálculo ('+fmt(semNF.reduce((s,x)=>s+valorNF(x),0))+').</div>':'')+
+    '</div>'+
+
+    '<div class="table-wrap" style="margin-bottom:16px">'+
+      '<div class="table-header"><div class="table-title">Simulador de faixa — por que a alíquota sobe</div>'+
+        '<div style="display:flex;gap:8px;align-items:center">'+
+          '<select class="filter-select" id="imp-sim-anexo" onchange="impSimular()"><option value="3"'+(cfg.anexo===3?' selected':'')+'>Anexo III</option><option value="5"'+(cfg.anexo===5?' selected':'')+'>Anexo V</option></select>'+
+          '<input class="search-input" id="imp-sim-rbt" type="number" step="1000" placeholder="RBT12" value="'+(ultRbt?ultRbt.rbt12:'')+'" oninput="impSimular()" style="width:150px">'+
+        '</div></div>'+
+      '<div style="padding:4px 18px 14px">'+
+        '<div style="font-size:12px;color:var(--text3);margin-top:10px;line-height:1.5">No Simples, a alíquota efetiva depende do faturamento dos últimos 12 meses (RBT12). Cada mês bom empurra o RBT12 para cima e a alíquota cresce um pouco, mesmo sem mudar de faixa. '+
+        (ultRbt?'Valor preenchido com o RBT12 da guia de '+getMesLabel(ultRbt.competencia)+'. ':'')+
+        'Serviços de engenharia ficam no Anexo III quando a folha dos últimos 12 meses é de pelo menos 28% do faturamento (Fator R); abaixo disso, Anexo V. A tabela não considera particularidades de ISS — a alíquota real é a da guia.</div>'+
+        '<div id="imp-sim-out"></div>'+
+      '</div>'+
+    '</div>'+
+    modal;
+
+  impSimular();
+
+  if(confirmadas.length){
+    const ctx = document.getElementById('chart-imp');
+    if(ctx){
+      if(ctx._ch) ctx._ch.destroy();
+      const ult = confirmadas.slice(-18);
+      ctx._ch = new Chart(ctx,{
+        data:{labels:ult.map(r=>getMesLabel(r.competencia)),datasets:[
+          {type:'bar',label:'DAS',data:ult.map(r=>r.valor_real),backgroundColor:'rgba(196,65,26,0.25)',borderRadius:4,yAxisID:'y'},
+          {type:'line',label:'Alíquota efetiva',data:ult.map(r=>Math.round(r.valor_real/r.base*10000)/100),borderColor:'#1A4A7A',backgroundColor:'#1A4A7A',tension:.3,pointRadius:3,yAxisID:'y1'}
+        ]},
+        options:{responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{display:true,position:'bottom',labels:{font:{size:10},boxWidth:10}},
+            tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y1'?(' '+String(c.parsed.y).replace('.',',')+'%'):(' '+fmt(c.parsed.y))}}},
+          scales:{y:{position:'left',ticks:{font:{size:10},callback:v=>'R$ '+(v/1000).toFixed(0)+'k'}},
+                  y1:{position:'right',grid:{drawOnChartArea:false},ticks:{font:{size:10},callback:v=>v+'%'}}}}
+      });
+    }
+  }
+}
+
+function changeMesImp(m){
+  const sel = document.getElementById('mes-select');
+  if(sel && Array.from(sel.options).some(o=>o.value===m)) sel.value = m;
+  changeMes(m);
+}
+
+async function abrirGuiaImp(comp){
+  _impConfirmComp = comp;
+  const all = await getData();
+  const recs = await getImpostosMes();
+  const cfg = await getImpCfg();
+  const bases = impBasesPorComp(all);
+  const b = bases[comp] ? bases[comp].base : 0;
+  const rec = recs[comp];
+  const lanc = all.find(x=>x.tipo==='pagar' && x.imposto_ref===comp);
+  const sugerido = rec && rec.confirmado ? rec.valor_real : (lanc ? valEf(lanc) : r2(b*impAliqEstimada(comp,recs,cfg).aliq));
+  document.getElementById('imp-m-titulo').textContent = 'Guia do DAS — '+getMesLabel(comp);
+  document.getElementById('imp-m-sub').textContent = 'Notas emitidas na competência: '+fmt(b);
+  document.getElementById('imp-m-valor').value = sugerido ? sugerido.toFixed(2) : '';
+  document.getElementById('imp-m-rbt').value = rec && rec.rbt12 ? rec.rbt12 : '';
+  document.getElementById('imp-m-obs').value = rec && rec.obs ? rec.obs : '';
+  const atual = ()=>{
+    const v = parseFloat(document.getElementById('imp-m-valor').value)||0;
+    document.getElementById('imp-m-aliq').textContent = b>0 && v>0 ? 'Alíquota efetiva desta guia: '+fmtPct(v/b) : '';
+  };
+  document.getElementById('imp-m-valor').oninput = atual; atual();
+  document.getElementById('modal-imp').style.display = 'flex';
+}
+
+function fecharModalImp(){
+  const m = document.getElementById('modal-imp'); if(m) m.style.display='none';
+  _impConfirmComp = null;
+}
+
+async function salvarGuiaImp(){
+  const comp = _impConfirmComp; if(!comp) return;
+  const v = parseFloat(document.getElementById('imp-m-valor').value);
+  if(!(v>=0) || isNaN(v)){ showToast('Informe o valor da guia.'); return; }
+  const rbt = parseFloat(document.getElementById('imp-m-rbt').value);
+  const obs = document.getElementById('imp-m-obs').value.trim();
+  const all = await getData();
+  const recs = await getImpostosMes();
+  const cfg = await getImpCfg();
+  const bases = impBasesPorComp(all);
+  const b = bases[comp] ? bases[comp].base : 0;
+  const rec = recs[comp] || {competencia:comp};
+  rec.confirmado = true; rec.valor_real = r2(v); rec.base = b;
+  rec.aliquota = b>0 ? v/b : null; rec.rbt12 = isNaN(rbt) ? null : rbt; rec.obs = obs;
+  const lanc = all.find(x=>x.tipo==='pagar' && x.imposto_ref===comp);
+  _impSyncing = true;
+  try{
+    if(lanc && !['pago','recebido','parcial'].includes(lanc.status)){
+      const up = {valor:rec.valor_real};
+      if(ehDescAuto(lanc.desc)) up.desc = descDas(comp,false);
+      await updateItem(lanc.id, up);
+      rec.lanc_id = lanc.id;
+    } else if(!lanc && comp >= (cfg.inicio||_nowMes) && rec.valor_real>0){
+      const venc = dasVenc(comp, cfg.dia);
+      const id = genId();
+      await addItem({id, tipo:'pagar', desc:descDas(comp,false), valor:rec.valor_real, venc, mes:venc.slice(0,7),
+        parte:'Receita Federal', cat:'Impostos', status:'pendente', nf:'', contrato:'',
+        obs:'Lançado pela aba Impostos.', imposto_ref:comp});
+      rec.lanc_id = id;
+    }
+    rec.valor_lancado = rec.valor_real;
+    await saveImpostoMes(rec);
+  } finally { _impSyncing = false; }
+  _impDirty = true;   // competências seguintes passam a usar a nova alíquota
+  fecharModalImp();
+  showToast('Guia de '+getMesLabel(comp)+' confirmada — alíquota '+fmtPct(rec.aliquota)+'.');
+  render();
+}
+
+async function desfazerGuiaImp(comp){
+  if(!confirm('Voltar a competência '+getMesLabel(comp)+' para valor estimado? O lançamento em A Pagar volta a ser recalculado.')) return;
+  const recs = await getImpostosMes();
+  const rec = recs[comp]; if(!rec) return;
+  const all = await getData();
+  const lanc = all.find(x=>x.tipo==='pagar' && x.imposto_ref===comp);
+  rec.confirmado = false; rec.valor_real = null;
+  rec.valor_lancado = lanc ? (parseFloat(lanc.valor)||0) : null;
+  if(lanc && ehDescAuto(lanc.desc)){
+    _impSyncing = true;
+    try{ await updateItem(lanc.id,{desc:descDas(comp,true)}); } finally { _impSyncing = false; }
+  }
+  await saveImpostoMes(rec);
+  _impDirty = true;
+  showToast('Competência '+getMesLabel(comp)+' voltou para estimado.');
+  render();
+}
+
+async function salvarCfgImp(){
+  const ini = document.getElementById('imp-c-inicio').value;
+  const dia = parseInt(document.getElementById('imp-c-dia').value,10);
+  const pad = parseFloat(document.getElementById('imp-c-padrao').value);
+  const anexo = parseInt(document.getElementById('imp-c-anexo').value,10)||3;
+  if(!ini){ showToast('Informe o mês de início.'); return; }
+  if(!(dia>=1 && dia<=31)){ showToast('Dia de vencimento inválido.'); return; }
+  await saveComConfig('das_inicio', mesToInt(ini));
+  await saveComConfig('das_dia', dia);
+  if(!isNaN(pad)) await saveComConfig('das_aliq_padrao', pad/100);
+  await saveComConfig('das_anexo', anexo);
+  document.getElementById('modal-imp-cfg').style.display='none';
+  _impDirty = true;
+  showToast('Parâmetros salvos.');
+  render();
+}
+
+async function aplicarAliqComissao(a){
+  if(!confirm('Usar '+fmtPct(a)+' como alíquota padrão das comissões?\n\nVale para todos os recebimentos sem alíquota própria, inclusive os de meses anteriores que ainda aparecem na tela de Comissões.')) return;
+  await saveComConfig('imposto', Math.round(a*10000)/10000);
+  showToast('Alíquota padrão das comissões atualizada para '+fmtPct(a)+'.');
+  render();
+}
+/* ========== FIM IMPOSTOS ========== */
+
+
+// ao digitar o Nº da NF, sugere a data de emissão de hoje
+function nfDigitada(){
+  const nf=document.getElementById('f-nf').value.trim();
+  const em=document.getElementById('f-nf-emissao');
+  if(nf&&em&&!em.value){ const d=new Date(); em.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+}
 
 // Sincroniza o seletor de mês com o mês atual calculado dinamicamente
 (function(){
