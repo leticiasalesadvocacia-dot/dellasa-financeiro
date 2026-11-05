@@ -1489,7 +1489,7 @@ function showPage(p){
   currentPage=p;tblStatus='todos';tblSearch='';tblDe='';tblAte='';tblDia='';tblModoData='mes';
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('nav-'+p)?.classList.add('active');
-  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',planejamento:'Planejamento — quanto fechar',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',cartoes:'Cartões de Crédito',comissoes:'Comissões da Equipe',impostos:'Impostos — Simples Nacional',historico:'Histórico'};
+  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',planejamento:'Planejamento — quanto faturar',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',cartoes:'Cartões de Crédito',comissoes:'Comissões da Equipe',impostos:'Impostos — Simples Nacional',historico:'Histórico'};
   document.getElementById('page-title').textContent=titles[p]||p;
   document.getElementById('btn-add').style.display=(p==='dashboard'||p==='receber'||p==='pagar'||p==='orcamentos'||p==='pausados')?'':'none';
   if(p==='orcamentos') document.getElementById('btn-add').onclick=()=>openOrcamento();
@@ -6003,38 +6003,22 @@ async function removerBenef(id,nome){
 
 /* ========== FIM COMISSÕES ========== */
 
-// === PLANEJAMENTO — quanto preciso fechar em projetos ===
-// Tudo ajustável na tela; as escolhas ficam salvas neste navegador.
-const PLAN_PADRAO={de:'',ate:'',caixa:'',reserva:0,desc:'',parcelas:3,atraso:1,fechIni:'',manual:'',vencidos:false,pausados:false,pausIni:''};
+// === PLANEJAMENTO — quanto preciso faturar em projetos novos ===
+// Conta de caixa simples: caixa de hoje + o que está lançado para entrar
+// - o que está lançado para sair. Onde o caixa fica abaixo da reserva,
+// é o que precisa entrar de projetos novos. Escolhas salvas no navegador.
+const PLAN_PADRAO={de:'',ate:'',caixa:'',reserva:0,desc:'',vencidos:false,pagAtras:true,pausados:false,pausIni:''};
 let planCfg=(function(){try{const s=localStorage.getItem('ds_planejamento');if(s){const o=Object.assign({},PLAN_PADRAO,JSON.parse(s));if(o.desc===14.25)o.desc='';return o;}}catch(e){}return Object.assign({},PLAN_PADRAO);})();
+let planAvancado=false;
 function planSalvar(){try{localStorage.setItem('ds_planejamento',JSON.stringify(planCfg));}catch(e){}}
 function planSet(k,v){
-  if(k==='desc'&&String(v).trim()==='')v='';
-  else if(['reserva','desc','parcelas','atraso'].includes(k))v=parseFloat(String(v).replace(',','.'))||0;
-  if(k==='parcelas')v=Math.max(1,Math.round(v));
-  if(k==='atraso')v=Math.max(0,Math.round(v));
+  if((k==='desc'||k==='caixa')&&String(v).trim()==='')v='';
+  else if(['reserva','desc'].includes(k))v=parseFloat(String(v).replace(',','.'))||0;
   planCfg[k]=v;planSalvar();render();
 }
 function planResetar(){planCfg=Object.assign({},PLAN_PADRAO);planSalvar();render();}
 const planAddM=(m,n)=>{const p=m.split('-');const d=new Date(parseInt(p[0]),parseInt(p[1])-1+n,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');};
 const planMesesEntre=(a,b)=>{const r=[];if(!a||!b||a>b)return r;let m=a;while(m<=b&&r.length<120){r.push(m);m=planAddM(m,1);}return r;};
-function planOpts(sel,de,ate){return planMesesEntre(de,ate).map(m=>'<option value="'+m+'"'+(m===sel?' selected':'')+'>'+getMesLabel(m)+'</option>').join('');}
-
-// Projeta o caixa mês a mês. sched = {mes de fechamento: valor fechado}
-function planProjetar(base,sched,c){
-  const liq=1-(c.desc/100);
-  const novos={};
-  Object.keys(sched).forEach(f=>{
-    const X=sched[f]||0;if(!X)return;
-    for(let k=0;k<c.parcelas;k++){const m=planAddM(f,c.atraso+k);novos[m]=(novos[m]||0)+X/c.parcelas*liq;}
-  });
-  let cx=c.caixaIni;
-  return base.map(b=>{
-    const ini=cx, nv=novos[b.m]||0;
-    cx=ini+b.rec-b.pag+(b.paus||0)+nv;
-    return {m:b.m,ini:ini,rec:b.rec,pag:b.pag,paus:b.paus||0,novos:nv,fim:cx};
-  });
-}
 
 async function renderPlanejamento(all){
   const hoje=new Date();const mesHoje=hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0');
@@ -6043,89 +6027,70 @@ async function renderPlanejamento(all){
   if(!c.de)c.de=anoSeg+'-01';
   if(!c.ate)c.ate=anoSeg+'-12';
   if(c.ate<c.de)c.ate=c.de;
-  if(!c.fechIni)c.fechIni=c.de;
+
+  // Caixa de partida
   const saldos=await getSaldos();
   const caixaAuto=saldos[mesHoje]||0;
   const caixaInformado=(c.caixa!==''&&c.caixa!==null&&!isNaN(parseFloat(c.caixa)));
-  c.caixaIni=caixaInformado?parseFloat(c.caixa):caixaAuto;
-  // Imposto + comissões: puxa da aba Impostos e dos parâmetros de comissão,
-  // a menos que tenha sido digitado um valor no próprio Planejamento.
-  const impCfgP=await getImpCfg();
-  const impEst=impAliqEstimada(c.de,await getImpostosMes(),impCfgP);
+  const caixaIni=caixaInformado?parseFloat(c.caixa):caixaAuto;
+
+  // Imposto + comissões: puxa da aba Impostos e dos parâmetros de comissão
+  const impEst=impAliqEstimada(c.de,await getImpostosMes(),await getImpCfg());
   const comCfgP=await getComConfig();
-  const benefP=await getComBenef();
-  const pctCom=benefP.reduce((a,b)=>a+(b.percentual||0),0);
+  const pctCom=(await getComBenef()).reduce((a,b)=>a+(b.percentual||0),0);
   const comEf=(1-(comCfgP.imposto||0))*pctCom;
   const descAuto=Math.round((impEst.aliq+comEf)*10000)/100;
   const descManual=(c.desc!==''&&c.desc!==null&&!isNaN(parseFloat(c.desc)));
-  c.desc=descManual?parseFloat(c.desc):descAuto;
-  const descInfo=descManual?'valor digitado · automático seria '+descAuto.toFixed(2).replace('.',',')+'%':
-    'imposto '+(impEst.aliq*100).toFixed(2).replace('.',',')+'% ('+impEst.origem+') + comissões '+(comEf*100).toFixed(2).replace('.',',')+'%';
+  const desc=descManual?parseFloat(c.desc):descAuto;
+  const liq=1-desc/100;
+  const pc=v=>(v*100).toFixed(2).replace('.',',')+'%';
+
+  // Contas de meses anteriores ainda em aberto
+  const atrasPag=all.filter(x=>x.tipo==='pagar'&&x.mes&&x.mes<mesHoje&&valEmAberto(x)>0.004);
+  const atrasRec=all.filter(x=>x.tipo==='receber'&&x.mes&&x.mes<mesHoje&&valEmAberto(x)>0.004);
+  const totAtrasPag=atrasPag.reduce((s,x)=>s+valEmAberto(x),0);
+  const totAtrasRec=atrasRec.reduce((s,x)=>s+valEmAberto(x),0);
 
   // Linha do tempo: do mês atual até o fim do período
   const linha=planMesesEntre(mesHoje,c.ate);
-  const base=linha.map(m=>{
+  const rows=linha.map(m=>{
     const doMes=all.filter(x=>x.mes===m);
     let rec=doMes.filter(x=>x.tipo==='receber').reduce((s,x)=>s+valEmAberto(x),0);
     let pag=doMes.filter(x=>x.tipo==='pagar').reduce((s,x)=>s+valEmAberto(x),0);
-    if(m===mesHoje){
-      // contas de meses anteriores ainda em aberto
-      const atras=all.filter(x=>x.mes&&x.mes<mesHoje);
-      pag+=atras.filter(x=>x.tipo==='pagar').reduce((s,x)=>s+valEmAberto(x),0);
-      if(c.vencidos)rec+=atras.filter(x=>x.tipo==='receber').reduce((s,x)=>s+valEmAberto(x),0);
-    }
-    return {m:m,rec:rec,pag:pag};
+    if(m===mesHoje){ if(c.pagAtras)pag+=totAtrasPag; if(c.vencidos)rec+=totAtrasRec; }
+    return {m:m,rec:rec,pag:pag,paus:0};
   });
-  const recVencidos=all.filter(x=>x.tipo==='receber'&&x.mes&&x.mes<mesHoje).reduce((s,x)=>s+valEmAberto(x),0);
 
-  // Projetos pausados: já fechados, sem data — opcionalmente entram a partir
-  // do mês escolhido, cada um nas suas parcelas, já descontado imposto e comissões.
+  // Projetos pausados (opcional): entram a partir do mês escolhido, nas suas parcelas
   const pausadosLista=await getPausados();
   const totalPaus=pausadosLista.reduce((a,x)=>a+(parseFloat(x.valor)||0),0);
-  const pausIni=c.pausIni||planAddM(c.fechIni,c.atraso);
+  const pausIni=c.pausIni||c.de;
   if(c.pausados){
-    const liqP=1-(c.desc/100);
     pausadosLista.forEach(x=>{
       const v=parseFloat(x.valor)||0;if(!v)return;
-      const n=Math.max(1,parseInt(x.parcelas)||c.parcelas);
-      for(let k=0;k<n;k++){
-        const m=planAddM(pausIni,k);
-        const b=base.find(y=>y.m===m);
-        if(b)b.paus=(b.paus||0)+v/n*liqP;
-      }
+      const n=Math.max(1,parseInt(x.parcelas)||1);
+      for(let k=0;k<n;k++){const r=rows.find(y=>y.m===planAddM(pausIni,k));if(r)r.paus+=v/n*liq;}
     });
   }
 
-  const sem=planProjetar(base,{},c);
-  const primeiroReceb=planAddM(c.fechIni,c.atraso);
-  const mesesFech=planMesesEntre(c.fechIni,c.ate);
-  const nFech=mesesFech.length;
-  const liq=1-(c.desc/100);
-  // Quanto precisa entrar de projetos novos no período (bruto), sem olhar prazo
-  const pior=sem.filter(r=>r.m>=c.de).reduce((a,r)=>Math.max(a,c.reserva-r.fim),0);
-  const brutoNec=liq>0?pior/liq:0;
-  // Ritmo sugerido: um valor fixo por mês + um reforço no 1º mês para cobrir
-  // a espera até as parcelas começarem a cair.
-  const ritmo=nFech?Math.ceil(brutoNec/nFech/100)*100:0;
-  const montar=L=>{const o={};mesesFech.forEach((f,i)=>o[f]=ritmo+(i===0?L:0));return o;};
-  const okSched=sc=>planProjetar(base,sc,c).every(r=>r.m<primeiroReceb||r.fim>=c.reserva-0.005);
-  let reforco=0;
-  if(nFech&&liq>0&&!okSched(montar(0))){
-    let hi=50000;while(!okSched(montar(hi))&&hi<1e9)hi*=2;
-    if(okSched(montar(hi))){let lo=0;for(let i=0;i<50;i++){const mid=(lo+hi)/2;if(okSched(montar(mid)))hi=mid;else lo=mid;}reforco=Math.ceil(hi/100)*100;}
-  }
-  const sched=nFech?montar(reforco):{};
-  const totalSched=Object.keys(sched).reduce((a,k)=>a+sched[k],0);
-  const manual=(c.manual!==''&&!isNaN(parseFloat(c.manual)))?parseFloat(c.manual):null;
-  const usado={};
-  if(manual!==null)mesesFech.forEach(f=>usado[f]=manual);else Object.assign(usado,sched);
-  const com=planProjetar(base,usado,c);
-  const impossivel=false;
-  const antesProblema=sem.filter(r=>r.m<primeiroReceb&&r.fim<c.reserva-0.005);
-  const minSem=sem.reduce((a,r)=>r.fim<a.fim?r:a,sem[0]||{fim:0,m:mesHoje});
-  const minCom=com.reduce((a,r)=>r.fim<a.fim?r:a,com[0]||{fim:0,m:mesHoje});
-  const cxInicioPeriodo=(com.find(r=>r.m===c.de)||{ini:c.caixaIni}).ini;
-  const fechPorMes=usado;
+  // Caixa mês a mês e quanto precisa entrar de projetos novos
+  let cx=caixaIni, maxFalta=0;
+  rows.forEach(r=>{
+    r.ini=cx; cx=cx+r.rec+r.paus-r.pag; r.fim=cx;
+    const falta=Math.max(0,c.reserva-r.fim);
+    const antes=maxFalta; if(falta>maxFalta)maxFalta=falta;
+    r.fatAcum=liq>0?maxFalta/liq:0;
+    r.fatMes=liq>0?(maxFalta-antes)/liq:0;
+    // caixa já contando o faturamento novo necessário
+    r.fimCom=r.fim+maxFalta; r.iniCom=r.fimCom-(r.rec+r.paus-r.pag)-(maxFalta-antes);
+  });
+  const periodo=rows.filter(r=>r.m>=c.de);
+  const antesPeriodo=rows.filter(r=>r.m<c.de);
+  const fatAntes=antesPeriodo.length?antesPeriodo[antesPeriodo.length-1].fatAcum:0;
+  const totalFat=(rows.length?rows[rows.length-1].fatAcum:0);
+  const fatPeriodo=totalFat-fatAntes;
+  const nMeses=periodo.length||1;
+  const fimSem=rows.length?rows[rows.length-1].fim:caixaIni;
 
   const orcs=await getOrcsData();
   const abertos=orcs.filter(o=>o.status==='enviado');
@@ -6134,75 +6099,69 @@ async function renderPlanejamento(all){
 
   const lbl='font-size:11px;color:var(--text2);font-weight:500;display:block;margin-bottom:4px';
   const inp='width:100%;box-sizing:border-box;padding:7px 9px';
+  const sub='font-size:10px;color:var(--text3);margin-top:3px';
   const optsTodos=planMesesEntre(planAddM(mesHoje,-12),planAddM(mesHoje,60));
   const optHtml=sel=>optsTodos.map(m=>'<option value="'+m+'"'+(m===sel?' selected':'')+'>'+getMesLabel(m)+'</option>').join('');
-  const cor=v=>v>=c.reserva-0.005?'var(--accent)':'var(--accent2)';
+  const corCx=v=>v>=c.reserva-0.005?'var(--accent)':'var(--accent2)';
 
-  let aviso='';
-  if(impossivel||antesProblema.length){
-    const pm=antesProblema[0];
-    aviso='<div style="background:#FDECEA;border:1px solid #F5C2B8;color:#8A2A10;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px">'+
-      '<b>Atenção:</b> '+(pm?'o caixa fica abaixo da reserva em <b>'+getMesLabel(pm.m)+'</b> ('+fmt(pm.fim)+'), antes de chegar o primeiro recebimento de projeto novo ('+getMesLabel(primeiroReceb)+'). Para cobrir esse mês, é preciso fechar e receber antes — ajuste "Começar a fechar em" ou o prazo do 1º recebimento.':'não há valor de fechamento que cubra o período com esses parâmetros.')+
-      '</div>';
-  }
+  const listaAtras=atrasPag.slice().sort((a,b)=>(a.venc||'').localeCompare(b.venc||'')).map(x=>
+    '<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dashed var(--border)"><span>'+(x.venc||'').split('-').reverse().join('/')+' · '+(x.desc||'—')+'</span><span class="td-mono">'+fmt(valEmAberto(x))+'</span></div>').join('');
 
-  const linhasTab=com.map(r=>{
+  const tabela=rows.map(r=>{
     const fora=r.m<c.de;
     return '<tr style="'+(fora?'opacity:.6':'')+'">'+
       '<td><div style="font-weight:500;font-size:12px">'+getMesLabel(r.m)+'</div>'+(fora?'<div style="font-size:10px;color:var(--text3)">antes do período</div>':'')+'</td>'+
-      '<td class="td-right td-mono">'+fmt(r.ini)+'</td>'+
+      '<td class="td-right td-mono">'+fmt(r.iniCom)+'</td>'+
       '<td class="td-right td-mono" style="color:var(--accent)">'+fmt(r.rec)+'</td>'+
-      '<td class="td-right td-mono" style="color:var(--accent2)">'+fmt(r.pag)+'</td>'+
       (c.pausados?'<td class="td-right td-mono" style="color:var(--accent)">'+(r.paus?fmt(r.paus):'—')+'</td>':'')+
-      '<td class="td-right td-mono" style="color:var(--blue)">'+(r.novos?fmt(r.novos):'—')+'</td>'+
-      '<td class="td-right td-mono" style="font-weight:600;color:'+cor(r.fim)+'">'+fmt(r.fim)+'</td>'+
-      '<td class="td-right td-mono">'+(fechPorMes[r.m]?fmt(fechPorMes[r.m]):'—')+'</td>'+
+      '<td class="td-right td-mono" style="color:var(--accent2)">'+fmt(r.pag)+'</td>'+
+      '<td class="td-right td-mono" style="color:var(--blue);font-weight:600">'+(r.fatMes>0.5?fmt(r.fatMes):'—')+'</td>'+
+      '<td class="td-right td-mono" style="font-weight:600;color:'+corCx(r.fimCom)+'">'+fmt(r.fimCom)+'</td>'+
     '</tr>';
   }).join('');
 
   document.getElementById('content').innerHTML=
+    // Resposta principal
+    '<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">'+
+      '<div class="metric-card" style="border-color:var(--blue)"><div class="metric-label">Faturar em projetos novos</div><div class="metric-value blue">'+fmt(fatPeriodo)+'</div><div class="metric-sub">de '+getMesLabel(c.de)+' a '+getMesLabel(c.ate)+' · média '+fmt(fatPeriodo/nMeses)+'/mês</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Orçamentos em aberto</div><div class="metric-value">'+fmt(pipe)+'</div><div class="metric-sub">'+abertos.length+' propostas · se fecharem todos, falta '+fmt(Math.max(0,fatPeriodo-pipe))+'</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Caixa em '+getMesLabel(c.ate)+' sem projetos novos</div><div class="metric-value '+(fimSem>=0?'green':'red')+'">'+fmt(fimSem)+'</div><div class="metric-sub">partindo de '+fmt(caixaIni)+' hoje</div></div>'+
+    '</div>'+
+    (fatAntes>0.5?'<div style="background:#FDECEA;border:1px solid #F5C2B8;color:#8A2A10;border-radius:10px;padding:10px 14px;margin:-8px 0 16px;font-size:12px">Antes de '+getMesLabel(c.de)+' o caixa já fica abaixo da reserva: precisa entrar mais <b>'+fmt(fatAntes)+'</b> ainda em '+getMesLabel(antesPeriodo.find(r=>r.fatMes>0.5).m)+'.</div>':'')+
+
+    // Parâmetros
     '<div class="table-wrap" style="margin-bottom:20px">'+
-      '<div class="table-header"><div class="table-title">Parâmetros do planejamento</div>'+
-        '<button class="btn-clear-filter" onclick="planResetar()">Voltar ao padrão</button></div>'+
-      '<div style="padding:16px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px">'+
-        '<div><label style="'+lbl+'">Período de</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'de\',this.value)">'+optHtml(c.de)+'</select></div>'+
-        '<div><label style="'+lbl+'">até</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'ate\',this.value)">'+optHtml(c.ate)+'</select></div>'+
-        '<div><label style="'+lbl+'">Caixa hoje (R$)</label><input class="search-input" style="'+inp+'" type="number" step="100" value="'+(caixaInformado?c.caixa:'')+'" placeholder="'+caixaAuto.toFixed(2)+'" onchange="planSet(\'caixa\',this.value)">'+
-          '<div style="font-size:10px;color:var(--text3);margin-top:3px">'+(caixaInformado?'valor digitado':'saldo salvo no Dashboard ('+getMesLabel(mesHoje)+')')+'</div></div>'+
-        '<div><label style="'+lbl+'">Reserva mínima (R$)</label><input class="search-input" style="'+inp+'" type="number" step="1000" value="'+c.reserva+'" onchange="planSet(\'reserva\',this.value)"></div>'+
-        '<div><label style="'+lbl+'">Imposto + comissões (%)</label><input class="search-input" style="'+inp+'" type="number" step="0.25" value="'+(descManual?c.desc:'')+'" placeholder="'+descAuto.toFixed(2)+'" onchange="planSet(\'desc\',this.value)">'+
-          '<div style="font-size:10px;color:var(--text3);margin-top:3px">'+descInfo+'</div></div>'+
-        '<div><label style="'+lbl+'">Começar a fechar em</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'fechIni\',this.value)">'+optHtml(c.fechIni)+'</select></div>'+
-        '<div><label style="'+lbl+'">1º recebimento após fechar (meses)</label><input class="search-input" style="'+inp+'" type="number" min="0" step="1" value="'+c.atraso+'" onchange="planSet(\'atraso\',this.value)"></div>'+
-        '<div><label style="'+lbl+'">Parcelas do cliente</label><input class="search-input" style="'+inp+'" type="number" min="1" step="1" value="'+c.parcelas+'" onchange="planSet(\'parcelas\',this.value)"></div>'+
-        '<div><label style="'+lbl+'">Simular fechamento mensal (R$)</label><input class="search-input" style="'+inp+'" type="number" step="1000" value="'+(manual!==null?manual:'')+'" placeholder="calculado" onchange="planSet(\'manual\',this.value)">'+
-          '<div style="font-size:10px;color:var(--text3);margin-top:3px">vazio = usa o necessário</div></div>'+
-        '<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)"><input type="checkbox" '+(c.vencidos?'checked':'')+' onchange="planSet(\'vencidos\',this.checked)"> Contar recebíveis vencidos ('+fmt(recVencidos)+')</div>'+
-        '<div><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-bottom:4px"><input type="checkbox" '+(c.pausados?'checked':'')+' onchange="planSet(\'pausados\',this.checked)"> Incluir projetos pausados ('+fmt(totalPaus)+', '+pausadosLista.length+')</label>'+
-          (c.pausados?'<select class="filter-select" style="'+inp+'" onchange="planSet(\'pausIni\',this.value)">'+optHtml(pausIni)+'</select><div style="font-size:10px;color:var(--text3);margin-top:3px">mês em que voltam a pagar</div>':'')+'</div>'+
+      '<div style="padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;align-items:start">'+
+        '<div><label style="'+lbl+'">De</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'de\',this.value)">'+optHtml(c.de)+'</select></div>'+
+        '<div><label style="'+lbl+'">Até</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'ate\',this.value)">'+optHtml(c.ate)+'</select></div>'+
+        '<div><label style="'+lbl+'">Reserva mínima no caixa (R$)</label><input class="search-input" style="'+inp+'" type="number" step="1000" value="'+c.reserva+'" onchange="planSet(\'reserva\',this.value)"></div>'+
+        '<div><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin:18px 0 4px"><input type="checkbox" '+(c.pausados?'checked':'')+' onchange="planSet(\'pausados\',this.checked)"> Incluir projetos pausados ('+fmt(totalPaus)+')</label>'+
+          (c.pausados?'<select class="filter-select" style="'+inp+'" onchange="planSet(\'pausIni\',this.value)">'+optHtml(pausIni)+'</select><div style="'+sub+'">mês em que voltam a pagar</div>':'')+'</div>'+
       '</div>'+
+      '<div style="padding:0 18px 12px"><button class="btn-clear-filter" onclick="planAvancado=!planAvancado;render()">'+(planAvancado?'▾ Menos opções':'▸ Mais opções')+'</button></div>'+
+      (planAvancado?
+      '<div style="padding:0 18px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;align-items:start;border-top:1px solid var(--border);padding-top:14px">'+
+        '<div><label style="'+lbl+'">Caixa hoje (R$)</label><input class="search-input" style="'+inp+'" type="number" step="100" value="'+(caixaInformado?c.caixa:'')+'" placeholder="'+caixaAuto.toFixed(2)+'" onchange="planSet(\'caixa\',this.value)"><div style="'+sub+'">'+(caixaInformado?'valor digitado · vazio = saldo do Dashboard':'saldo salvo no Dashboard ('+getMesLabel(mesHoje)+')')+'</div></div>'+
+        '<div><label style="'+lbl+'">Imposto + comissões (%)</label><input class="search-input" style="'+inp+'" type="number" step="0.25" value="'+(descManual?c.desc:'')+'" placeholder="'+descAuto.toFixed(2)+'" onchange="planSet(\'desc\',this.value)"><div style="'+sub+'">'+(descManual?'valor digitado · automático: '+descAuto.toFixed(2).replace('.',',')+'%':'imposto '+pc(impEst.aliq)+' + comissões '+pc(comEf)+' ('+pc(pctCom)+' sobre o valor já sem imposto)')+'</div></div>'+
+        '<div><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)"><input type="checkbox" '+(c.pagAtras?'checked':'')+' onchange="planSet(\'pagAtras\',this.checked)"> Contar contas a pagar atrasadas ('+fmt(totAtrasPag)+')</label>'+
+          (atrasPag.length?'<div style="font-size:11px;color:var(--text2);margin-top:6px;max-height:140px;overflow:auto">'+listaAtras+'</div>':'<div style="'+sub+'">nenhuma conta de meses anteriores em aberto</div>')+'</div>'+
+        '<div><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)"><input type="checkbox" '+(c.vencidos?'checked':'')+' onchange="planSet(\'vencidos\',this.checked)"> Contar recebíveis vencidos ('+fmt(totAtrasRec)+')</label></div>'+
+        '<div><button class="btn-clear-filter" onclick="planResetar()">Voltar ao padrão</button></div>'+
+      '</div>':'')+
     '</div>'+
-    aviso+
-    '<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">'+
-      '<div class="metric-card"><div class="metric-label">Faturamento novo necessário</div><div class="metric-value blue">'+fmt(brutoNec)+'</div><div class="metric-sub">a receber até '+getMesLabel(c.ate)+', já com imposto e comissões</div></div>'+
-      '<div class="metric-card"><div class="metric-label">Ritmo de fechamento</div><div class="metric-value blue">'+fmt(ritmo)+'<span style="font-size:13px;font-weight:500">/mês</span></div><div class="metric-sub">'+(reforco?'+ reforço de '+fmt(reforco)+' em '+getMesLabel(c.fechIni)+' · ':'')+'total '+fmt(totalSched)+'</div></div>'+
-      '<div class="metric-card"><div class="metric-label">Caixa em 1º de '+getMesLabel(c.de)+'</div><div class="metric-value '+(cxInicioPeriodo>=0?'green':'red')+'">'+fmt(cxInicioPeriodo)+'</div><div class="metric-sub">partindo de '+fmt(c.caixaIni)+' hoje</div></div>'+
-      '<div class="metric-card"><div class="metric-label">Sem novos projetos</div><div class="metric-value red">'+fmt(minSem.fim)+'</div><div class="metric-sub">menor caixa, em '+getMesLabel(minSem.m)+'</div></div>'+
-      '<div class="metric-card"><div class="metric-label">Orçamentos em aberto</div><div class="metric-value">'+fmt(pipe)+'</div><div class="metric-sub">'+abertos.length+' propostas · ponderado '+fmt(pipePond)+'</div></div>'+
-    '</div>'+
-    (manual!==null?'<div style="font-size:12px;color:var(--text2);margin:-12px 0 16px">Simulando '+fmt(manual)+'/mês: menor caixa de '+fmt(minCom.fim)+' em '+getMesLabel(minCom.m)+' — '+(minCom.fim>=c.reserva-0.005?'<b style="color:var(--accent)">cobre o período</b>':'<b style="color:var(--accent2)">não cobre</b>')+'.</div>':'')+
-    '<div class="chart-card" style="margin-bottom:20px"><div class="chart-title">Caixa no fim de cada mês</div><div style="position:relative;height:230px"><canvas id="chart-plan" role="img" aria-label="Caixa projetado"></canvas></div></div>'+
-    '<div class="table-wrap"><div class="table-header"><div class="table-title">Mês a mês</div><div style="font-size:11px;color:var(--text3)">Receitas e despesas = o que está lançado e ainda em aberto</div></div>'+
-      '<table><thead><tr><th>Mês</th><th class="td-right">Caixa início</th><th class="td-right">Receitas previstas</th><th class="td-right">Despesas</th>'+(c.pausados?'<th class="td-right">Pausados (líquido)</th>':'')+'<th class="td-right">Novos projetos (líquido)</th><th class="td-right">Caixa fim</th><th class="td-right">Fechar no mês</th></tr></thead>'+
-      '<tbody>'+linhasTab+'</tbody></table></div>';
+
+    '<div class="chart-card" style="margin-bottom:20px"><div class="chart-title">Caixa no fim de cada mês</div><div style="position:relative;height:220px"><canvas id="chart-plan" role="img" aria-label="Caixa projetado"></canvas></div></div>'+
+    '<div class="table-wrap"><div class="table-header"><div class="table-title">Mês a mês</div><div style="font-size:11px;color:var(--text3)">Entra e sai = o que está lançado e ainda em aberto · Faturar = projetos novos que precisam entrar no mês (com imposto e comissões de '+desc.toFixed(2).replace('.',',')+'%) · Caixa fim já conta com eles</div></div>'+
+      '<table><thead><tr><th>Mês</th><th class="td-right">Caixa início</th><th class="td-right">Entra</th>'+(c.pausados?'<th class="td-right">Pausados (líquido)</th>':'')+'<th class="td-right">Sai</th><th class="td-right">Faturar no mês</th><th class="td-right">Caixa fim</th></tr></thead>'+
+      '<tbody>'+tabela+'</tbody></table></div>';
 
   setTimeout(()=>{
     const ctx=document.getElementById('chart-plan');if(!ctx)return;
     if(ctx._ch)ctx._ch.destroy();
-    ctx._ch=new Chart(ctx,{type:'line',data:{labels:com.map(r=>getMesLabel(r.m)),datasets:[
-      {label:'Com novos projetos',data:com.map(r=>r.fim),borderColor:'#2A5C45',backgroundColor:'rgba(42,92,69,0.08)',fill:true,tension:.3,pointRadius:3},
-      {label:'Sem novos projetos',data:sem.map(r=>r.fim),borderColor:'#C4411A',borderDash:[4,3],fill:false,tension:.3,pointRadius:2},
-      {label:'Reserva mínima',data:com.map(()=>c.reserva),borderColor:'#1A4A7A',borderDash:[2,4],fill:false,pointRadius:0}
+    ctx._ch=new Chart(ctx,{type:'line',data:{labels:rows.map(r=>getMesLabel(r.m)),datasets:[
+      {label:'Com o faturamento necessário',data:rows.map(r=>r.fimCom),borderColor:'#2A5C45',backgroundColor:'rgba(42,92,69,0.08)',fill:true,tension:.3,pointRadius:3},
+      {label:'Sem projetos novos',data:rows.map(r=>r.fim),borderColor:'#C4411A',borderDash:[4,3],fill:false,tension:.3,pointRadius:2},
+      {label:'Reserva mínima',data:rows.map(()=>c.reserva),borderColor:'#1A4A7A',borderDash:[3,4],fill:false,pointRadius:0}
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{font:{size:11},boxWidth:12}}},scales:{y:{ticks:{font:{size:10},callback:v=>'R$'+Intl.NumberFormat('pt-BR',{notation:'compact'}).format(v)},grid:{color:'rgba(0,0,0,0.04)'}},x:{ticks:{font:{size:10}},grid:{display:false}}}}});
   },50);
 }
