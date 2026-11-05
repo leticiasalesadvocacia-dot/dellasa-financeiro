@@ -1093,7 +1093,30 @@ const db = async (action, table, data=null, query=null) => {
   let body = undefined;
 
   if (action === 'select') {
-    url += query ? `?${query}` : '?select=*';
+    // O Supabase devolve no maximo 1.000 linhas por busca. Buscamos em
+    // paginas de 1.000 ate vir uma pagina incompleta, assim nenhuma linha
+    // fica de fora, nao importa o tamanho da tabela.
+    const base = url + (query ? `?${query}` : '?select=*');
+    const PAGINA = 1000;
+    let todas = [];
+    for (let offset = 0; ; offset += PAGINA) {
+      const pageUrl = base + `&limit=${PAGINA}&offset=${offset}`;
+      const r = await fetch(pageUrl, { method: 'GET', headers });
+      const t = await r.text();
+      if (!r.ok) {
+        let detalhe = t;
+        try { const err = JSON.parse(t); detalhe = err.message || err.hint || err.details || t; } catch(e) {}
+        const msg = 'Erro no banco (' + r.status + ') ao select em ' + table + ': ' + detalhe;
+        console.error(msg, {url: pageUrl});
+        if (typeof showToast === 'function') showToast(msg, 9000);
+        throw new Error(msg);
+      }
+      const pagina = t ? JSON.parse(t) : [];
+      if (!Array.isArray(pagina) || pagina.length === 0) break;
+      todas = todas.concat(pagina);
+      if (pagina.length < PAGINA) break;
+    }
+    return todas;
   } else if (action === 'insert' || action === 'upsert') {
     method = 'POST';
     body = JSON.stringify(data);
@@ -1144,18 +1167,15 @@ async function getData() {
   // sumir da tela ate dar F5.
   for (let tentativa = 0; tentativa < 3; tentativa++) {
     const gen = _cacheGen;
-    const rows = await db('select', 'lancamentos', null, 'select=*&order=venc.asc');
+    // id como desempate deixa a ordem estavel entre as paginas
+    const rows = await db('select', 'lancamentos', null, 'select=*&order=venc.asc,id.asc');
     const dados = Array.isArray(rows) ? rows.map(dbToLocal) : [];
     if (gen === _cacheGen) {
-      if (dados.length >= 1000) {
-        console.warn('Atencao: ' + dados.length + ' lancamentos carregados. Perto do limite do Supabase.');
-        if (typeof showToast === 'function') showToast('Atencao: o banco chegou a ' + dados.length + ' lancamentos. Avise o Claude para paginar a carga.', 9000);
-      }
       _cache = dados;
       return _cache;
     }
   }
-  const rows = await db('select', 'lancamentos', null, 'select=*&order=venc.asc');
+  const rows = await db('select', 'lancamentos', null, 'select=*&order=venc.asc,id.asc');
   _cache = Array.isArray(rows) ? rows.map(dbToLocal) : [];
   return _cache;
 }
