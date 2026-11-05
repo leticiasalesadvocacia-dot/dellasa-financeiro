@@ -6010,6 +6010,7 @@ async function removerBenef(id,nome){
 const PLAN_PADRAO={de:'',ate:'',caixa:'',reserva:0,desc:'',vencidos:false,pagAtras:false,pausados:false,pausIni:''};
 let planCfg=(function(){try{const s=localStorage.getItem('ds_planejamento');if(s){const o=Object.assign({},PLAN_PADRAO,JSON.parse(s));if(o.desc===14.25)o.desc='';return o;}}catch(e){}return Object.assign({},PLAN_PADRAO);})();
 let planAvancado=false;
+let _planUltimo=null;
 function planSalvar(){try{localStorage.setItem('ds_planejamento',JSON.stringify(planCfg));}catch(e){}}
 function planSet(k,v){
   if((k==='desc'||k==='caixa')&&String(v).trim()==='')v='';
@@ -6104,6 +6105,9 @@ async function renderPlanejamento(all){
   const optHtml=sel=>optsTodos.map(m=>'<option value="'+m+'"'+(m===sel?' selected':'')+'>'+getMesLabel(m)+'</option>').join('');
   const corCx=v=>v>=c.reserva-0.005?'var(--accent)':'var(--accent2)';
 
+  _planUltimo={c:c,rows:rows,caixaIni:caixaIni,desc:desc,fatPeriodo:fatPeriodo,nMeses:nMeses,fimSem:fimSem,
+    pipe:pipe,nAbertos:abertos.length,totalPaus:totalPaus,pausIni:pausIni,fatAntes:fatAntes,
+    totAtrasPag:totAtrasPag,mesHoje:mesHoje};
   const listaAtras=atrasPag.slice().sort((a,b)=>(a.venc||'').localeCompare(b.venc||'')).map(x=>
     '<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dashed var(--border)"><span>'+(x.venc||'').split('-').reverse().join('/')+' · '+(x.desc||'—')+'</span><span class="td-mono">'+fmt(valEmAberto(x))+'</span></div>').join('');
 
@@ -6152,7 +6156,7 @@ async function renderPlanejamento(all){
     '</div>'+
 
     '<div class="chart-card" style="margin-bottom:20px"><div class="chart-title">Caixa no fim de cada mês</div><div style="position:relative;height:220px"><canvas id="chart-plan" role="img" aria-label="Caixa projetado"></canvas></div></div>'+
-    '<div class="table-wrap"><div class="table-header"><div class="table-title">Mês a mês</div><div style="font-size:11px;color:var(--text3)">Entra e sai = o que está lançado e ainda em aberto · Faturar = projetos novos que precisam entrar no mês (com imposto e comissões de '+desc.toFixed(2).replace('.',',')+'%) · Caixa fim já conta com eles</div></div>'+
+    '<div class="table-wrap"><div class="table-header"><div style="display:flex;align-items:center;gap:12px"><div class="table-title">Mês a mês</div><button class="btn export" onclick="planPDF()" style="padding:5px 10px;font-size:12px"><i class="ti ti-printer"></i> Exportar PDF</button></div><div style="font-size:11px;color:var(--text3)">Entra e sai = o que está lançado e ainda em aberto · Faturar = projetos novos que precisam entrar no mês (com imposto e comissões de '+desc.toFixed(2).replace('.',',')+'%) · Caixa fim já conta com eles</div></div>'+
       '<table><thead><tr><th>Mês</th><th class="td-right">Caixa início</th><th class="td-right">Entra</th>'+(c.pausados?'<th class="td-right">Pausados (líquido)</th>':'')+'<th class="td-right">Sai</th><th class="td-right">Faturar no mês</th><th class="td-right">Caixa fim</th></tr></thead>'+
       '<tbody>'+tabela+'</tbody></table></div>';
 
@@ -6165,6 +6169,69 @@ async function renderPlanejamento(all){
       {label:'Reserva mínima',data:rows.map(()=>c.reserva),borderColor:'#1A4A7A',borderDash:[3,4],fill:false,pointRadius:0}
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{font:{size:11},boxWidth:12}}},scales:{y:{ticks:{font:{size:10},callback:v=>'R$'+Intl.NumberFormat('pt-BR',{notation:'compact'}).format(v)},grid:{color:'rgba(0,0,0,0.04)'}},x:{ticks:{font:{size:10}},grid:{display:false}}}}});
   },50);
+}
+// Relatório do Planejamento para imprimir / salvar em PDF
+function planPDF(){
+  const d=_planUltimo;if(!d){showToast('Abra o Planejamento primeiro.');return;}
+  const c=d.c, cor='#2A5C45', corLight='#F2F7F4';
+  const pctTxt=d.desc.toFixed(2).replace('.',',')+'%';
+  let grafico='';
+  try{const cv=document.getElementById('chart-plan');if(cv)grafico='<img src="'+cv.toDataURL('image/png')+'" style="width:100%;max-height:230px;object-fit:contain">';}catch(e){}
+  const linhas=d.rows.map((r,i)=>{
+    const fora=r.m<c.de;
+    return '<tr style="'+(fora?'color:#999':'')+'">'+
+      '<td><b>'+getMesLabel(r.m)+'</b>'+(fora?' <small>(antes do período)</small>':'')+'</td>'+
+      '<td class="n">'+fmt(r.iniCom)+'</td>'+
+      '<td class="n" style="color:#2A5C45">'+fmt(r.rec)+'</td>'+
+      (c.pausados?'<td class="n" style="color:#2A5C45">'+(r.paus?fmt(r.paus):'—')+'</td>':'')+
+      '<td class="n" style="color:#C4411A">'+fmt(r.pag)+'</td>'+
+      '<td class="n" style="color:#1A4A7A;font-weight:700">'+(r.fatMes>0.5?fmt(r.fatMes):'—')+'</td>'+
+      '<td class="n" style="font-weight:700">'+fmt(r.fimCom)+'</td>'+
+    '</tr>';
+  }).join('');
+  const params=[
+    'Caixa de partida: <b>'+fmt(d.caixaIni)+'</b> ('+getMesLabel(d.mesHoje)+')',
+    'Reserva mínima: <b>'+fmt(c.reserva)+'</b>',
+    'Imposto + comissões: <b>'+pctTxt+'</b>',
+    'Projetos pausados: <b>'+(c.pausados?'incluídos ('+fmt(d.totalPaus)+', a partir de '+getMesLabel(d.pausIni)+')':'não incluídos')+'</b>',
+    'Contas atrasadas de meses anteriores: <b>'+(c.pagAtras?'incluídas':'não incluídas')+'</b>'+(d.totAtrasPag>0.5?' ('+fmt(d.totAtrasPag)+')':'')
+  ].map(t=>'<span>'+t+'</span>').join('');
+  const html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'+
+  '<title>Planejamento '+getMesLabel(c.de)+' a '+getMesLabel(c.ate)+'</title>'+
+  '<style>*{margin:0;padding:0;box-sizing:border-box}'+
+  'body{font-family:"Century Gothic",Arial,sans-serif;background:#fff;color:#1A1814;padding:28px}'+
+  '.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid '+cor+'}'+
+  '.logo{font-size:22px;font-weight:700;color:'+cor+'}.sub{font-size:13px;color:#666;margin-top:4px}'+
+  '.periodo{text-align:right;font-size:12px;color:#666}.periodo strong{font-size:16px;color:'+cor+';display:block}'+
+  '.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}'+
+  '.card{border:1px solid #ddd;border-radius:10px;padding:12px 14px}.card.main{border:2px solid #1A4A7A}'+
+  '.lbl{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#888;margin-bottom:4px}'+
+  '.val{font-size:19px;font-weight:700;font-family:monospace}.cap{font-size:10.5px;color:#777;margin-top:4px}'+
+  '.params{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:11px;color:#555;margin-bottom:14px}'+
+  '.alerta{background:#FDECEA;border:1px solid #F5C2B8;color:#8A2A10;border-radius:8px;padding:8px 12px;font-size:11.5px;margin-bottom:12px}'+
+  'table{width:100%;border-collapse:collapse;margin-top:12px}thead{background:'+cor+';color:#fff}'+
+  'th{padding:8px 10px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.04em}th:first-child{text-align:left}'+
+  'td{padding:7px 10px;font-size:11.5px;border-bottom:1px solid #eee}td.n{text-align:right;font-family:monospace}'+
+  'tbody tr:nth-child(even){background:'+corLight+'}'+
+  '.nota{font-size:10px;color:#888;margin-top:8px}.footer{margin-top:16px;text-align:center;font-size:10px;color:#aaa}'+
+  '@media print{body{padding:0}@page{size:A4 landscape;margin:1.2cm}tr{page-break-inside:avoid}}</style></head><body>'+
+  '<div class="header"><div><div class="logo">DellaSá Estruturas</div><div class="sub">Planejamento — quanto faturar em projetos novos</div></div>'+
+  '<div class="periodo"><strong>'+getMesLabel(c.de)+' a '+getMesLabel(c.ate)+'</strong>Gerado em '+new Date().toLocaleDateString('pt-BR')+'</div></div>'+
+  '<div class="summary">'+
+    '<div class="card main"><div class="lbl">Faturar em projetos novos</div><div class="val" style="color:#1A4A7A">'+fmt(d.fatPeriodo)+'</div><div class="cap">média '+fmt(d.fatPeriodo/d.nMeses)+'/mês · já com imposto e comissões</div></div>'+
+    '<div class="card"><div class="lbl">Orçamentos em aberto</div><div class="val">'+fmt(d.pipe)+'</div><div class="cap">'+d.nAbertos+' propostas · se fecharem todos, falta '+fmt(Math.max(0,d.fatPeriodo-d.pipe))+'</div></div>'+
+    '<div class="card"><div class="lbl">Caixa em '+getMesLabel(c.ate)+' sem projetos novos</div><div class="val" style="color:'+(d.fimSem>=0?'#2A5C45':'#C4411A')+'">'+fmt(d.fimSem)+'</div><div class="cap">partindo de '+fmt(d.caixaIni)+'</div></div>'+
+  '</div>'+
+  (d.fatAntes>0.5?'<div class="alerta">Antes de '+getMesLabel(c.de)+' o caixa já fica abaixo da reserva: precisa entrar mais <b>'+fmt(d.fatAntes)+'</b>.</div>':'')+
+  '<div class="params">'+params+'</div>'+
+  grafico+
+  '<table><thead><tr><th>Mês</th><th>Caixa início</th><th>Entra</th>'+(c.pausados?'<th>Pausados (líq.)</th>':'')+'<th>Sai</th><th>Faturar no mês</th><th>Caixa fim</th></tr></thead><tbody>'+linhas+'</tbody></table>'+
+  '<div class="nota">Entra e sai = lançamentos ainda em aberto no sistema. "Faturar no mês" = valor bruto de projetos novos que precisa entrar no mês (já cobre '+pctTxt+' de imposto e comissões). "Caixa fim" já conta com esse faturamento.</div>'+
+  '<div class="footer">DellaSá Estruturas Ltda — Sistema Financeiro — '+new Date().toLocaleString('pt-BR')+'</div>'+
+  '<script>window.onload=()=>window.print()<\/script></body></html>';
+  const win=window.open('','_blank');
+  if(win){win.document.write(html);win.document.close();}
+  else showToast('Permita popups para exportar PDF.');
 }
 
 function renderRelatorios(){
