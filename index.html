@@ -6007,7 +6007,7 @@ async function removerBenef(id,nome){
 // Conta de caixa simples: caixa de hoje + o que está lançado para entrar
 // - o que está lançado para sair. Onde o caixa fica abaixo da reserva,
 // é o que precisa entrar de projetos novos. Escolhas salvas no navegador.
-const PLAN_PADRAO={de:'',ate:'',caixa:'',reserva:0,desc:'',vencidos:false,pagAtras:true,pausados:false,pausIni:''};
+const PLAN_PADRAO={de:'',ate:'',caixa:'',reserva:0,desc:'',vencidos:false,pagAtras:false,pausados:false,pausIni:''};
 let planCfg=(function(){try{const s=localStorage.getItem('ds_planejamento');if(s){const o=Object.assign({},PLAN_PADRAO,JSON.parse(s));if(o.desc===14.25)o.desc='';return o;}}catch(e){}return Object.assign({},PLAN_PADRAO);})();
 let planAvancado=false;
 function planSalvar(){try{localStorage.setItem('ds_planejamento',JSON.stringify(planCfg));}catch(e){}}
@@ -6129,6 +6129,7 @@ async function renderPlanejamento(all){
     '</div>'+
     (fatAntes>0.5?'<div style="background:#FDECEA;border:1px solid #F5C2B8;color:#8A2A10;border-radius:10px;padding:10px 14px;margin:-8px 0 16px;font-size:12px">Antes de '+getMesLabel(c.de)+' o caixa já fica abaixo da reserva: precisa entrar mais <b>'+fmt(fatAntes)+'</b> ainda em '+getMesLabel(antesPeriodo.find(r=>r.fatMes>0.5).m)+'.</div>':'')+
 
+    (totAtrasPag>0.5&&!c.pagAtras?'<div style="font-size:12px;color:var(--text2);margin:-8px 0 16px">Há '+fmt(totAtrasPag)+' em contas a pagar de meses anteriores ainda em aberto ('+atrasPag.length+'), que não estão sendo contadas. Veja a lista em <a href="#" onclick="planAvancado=true;render();return false">Mais opções</a>.</div>':'')+
     // Parâmetros
     '<div class="table-wrap" style="margin-bottom:20px">'+
       '<div style="padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;align-items:start">'+
