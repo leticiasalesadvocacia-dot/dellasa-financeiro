@@ -206,6 +206,7 @@ if (sessionStorage.getItem('ds_auth') === '1') {
       <button class="nav-item" onclick="showPage('fluxo')" id="nav-fluxo"><i class="ti ti-chart-line"></i><span class="nav-label"> Fluxo de Caixa</span></button>
       <button class="nav-item" onclick="showPage('dre')" id="nav-dre"><i class="ti ti-report-analytics"></i><span class="nav-label"> DRE</span></button>
       <button class="nav-item" onclick="showPage('resultado')" id="nav-resultado"><i class="ti ti-trophy"></i><span class="nav-label"> Resultado do Mês</span></button>
+      <button class="nav-item" onclick="showPage('planejamento')" id="nav-planejamento"><i class="ti ti-target-arrow"></i><span class="nav-label"> Planejamento</span></button>
       <button class="nav-item" onclick="showPage('orcamentos')" id="nav-orcamentos"><i class="ti ti-file-dollar"></i><span class="nav-label"> Orçamentos</span></button>
       <button class="nav-item" onclick="showPage('emprestimos')" id="nav-emprestimos"><i class="ti ti-building-bank"></i><span class="nav-label"> Empréstimos</span></button>
       <button class="nav-item" onclick="showPage('pausados')" id="nav-pausados"><i class="ti ti-player-pause"></i><span class="nav-label"> Proj. Pausados</span></button>
@@ -1488,7 +1489,7 @@ function showPage(p){
   currentPage=p;tblStatus='todos';tblSearch='';tblDe='';tblAte='';tblDia='';tblModoData='mes';
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('nav-'+p)?.classList.add('active');
-  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',cartoes:'Cartões de Crédito',comissoes:'Comissões da Equipe',impostos:'Impostos — Simples Nacional',historico:'Histórico'};
+  const titles={dashboard:'Dashboard',receber:'Contas a Receber',pagar:'Contas a Pagar',fluxo:'Fluxo de Caixa',dre:'DRE – Resultado do Período',resultado:'Resultado do Mês',planejamento:'Planejamento — quanto fechar',orcamentos:'Orçamentos & Pipeline',pausados:'Projetos Pausados',relatorios:'Relatórios',cartoes:'Cartões de Crédito',comissoes:'Comissões da Equipe',impostos:'Impostos — Simples Nacional',historico:'Histórico'};
   document.getElementById('page-title').textContent=titles[p]||p;
   document.getElementById('btn-add').style.display=(p==='dashboard'||p==='receber'||p==='pagar'||p==='orcamentos'||p==='pausados')?'':'none';
   if(p==='orcamentos') document.getElementById('btn-add').onclick=()=>openOrcamento();
@@ -2415,6 +2416,7 @@ async function render(){
     else if(currentPage==='fluxo')renderFluxo(all);
     else if(currentPage==='dre')await renderDRE(all,mes);
     else if(currentPage==='resultado')await renderResultado(all,mes);
+    else if(currentPage==='planejamento')await renderPlanejamento(all);
     else if(currentPage==='orcamentos')await renderOrcamentos();
     else if(currentPage==='emprestimos')await renderEmprestimos();
     else if(currentPage==='pausados')await renderPausados();
@@ -6000,6 +6002,175 @@ async function removerBenef(id,nome){
 }
 
 /* ========== FIM COMISSÕES ========== */
+
+// === PLANEJAMENTO — quanto preciso fechar em projetos ===
+// Tudo ajustável na tela; as escolhas ficam salvas neste navegador.
+const PLAN_PADRAO={de:'',ate:'',caixa:'',reserva:0,desc:14.25,parcelas:3,atraso:1,fechIni:'',manual:'',vencidos:false};
+let planCfg=(function(){try{const s=localStorage.getItem('ds_planejamento');if(s)return Object.assign({},PLAN_PADRAO,JSON.parse(s));}catch(e){}return Object.assign({},PLAN_PADRAO);})();
+function planSalvar(){try{localStorage.setItem('ds_planejamento',JSON.stringify(planCfg));}catch(e){}}
+function planSet(k,v){
+  if(['reserva','desc','parcelas','atraso'].includes(k))v=parseFloat(String(v).replace(',','.'))||0;
+  if(k==='parcelas')v=Math.max(1,Math.round(v));
+  if(k==='atraso')v=Math.max(0,Math.round(v));
+  planCfg[k]=v;planSalvar();render();
+}
+function planResetar(){planCfg=Object.assign({},PLAN_PADRAO);planSalvar();render();}
+const planAddM=(m,n)=>{const p=m.split('-');const d=new Date(parseInt(p[0]),parseInt(p[1])-1+n,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');};
+const planMesesEntre=(a,b)=>{const r=[];if(!a||!b||a>b)return r;let m=a;while(m<=b&&r.length<120){r.push(m);m=planAddM(m,1);}return r;};
+function planOpts(sel,de,ate){return planMesesEntre(de,ate).map(m=>'<option value="'+m+'"'+(m===sel?' selected':'')+'>'+getMesLabel(m)+'</option>').join('');}
+
+// Projeta o caixa mês a mês. sched = {mes de fechamento: valor fechado}
+function planProjetar(base,sched,c){
+  const liq=1-(c.desc/100);
+  const novos={};
+  Object.keys(sched).forEach(f=>{
+    const X=sched[f]||0;if(!X)return;
+    for(let k=0;k<c.parcelas;k++){const m=planAddM(f,c.atraso+k);novos[m]=(novos[m]||0)+X/c.parcelas*liq;}
+  });
+  let cx=c.caixaIni;
+  return base.map(b=>{
+    const ini=cx, nv=novos[b.m]||0;
+    cx=ini+b.rec-b.pag+nv;
+    return {m:b.m,ini:ini,rec:b.rec,pag:b.pag,novos:nv,fim:cx};
+  });
+}
+
+async function renderPlanejamento(all){
+  const hoje=new Date();const mesHoje=hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0');
+  const anoSeg=String(hoje.getFullYear()+1);
+  const c=Object.assign({},planCfg);
+  if(!c.de)c.de=anoSeg+'-01';
+  if(!c.ate)c.ate=anoSeg+'-12';
+  if(c.ate<c.de)c.ate=c.de;
+  if(!c.fechIni)c.fechIni=c.de;
+  const saldos=await getSaldos();
+  const caixaAuto=saldos[mesHoje]||0;
+  const caixaInformado=(c.caixa!==''&&c.caixa!==null&&!isNaN(parseFloat(c.caixa)));
+  c.caixaIni=caixaInformado?parseFloat(c.caixa):caixaAuto;
+
+  // Linha do tempo: do mês atual até o fim do período
+  const linha=planMesesEntre(mesHoje,c.ate);
+  const base=linha.map(m=>{
+    const doMes=all.filter(x=>x.mes===m);
+    let rec=doMes.filter(x=>x.tipo==='receber').reduce((s,x)=>s+valEmAberto(x),0);
+    let pag=doMes.filter(x=>x.tipo==='pagar').reduce((s,x)=>s+valEmAberto(x),0);
+    if(m===mesHoje){
+      // contas de meses anteriores ainda em aberto
+      const atras=all.filter(x=>x.mes&&x.mes<mesHoje);
+      pag+=atras.filter(x=>x.tipo==='pagar').reduce((s,x)=>s+valEmAberto(x),0);
+      if(c.vencidos)rec+=atras.filter(x=>x.tipo==='receber').reduce((s,x)=>s+valEmAberto(x),0);
+    }
+    return {m:m,rec:rec,pag:pag};
+  });
+  const recVencidos=all.filter(x=>x.tipo==='receber'&&x.mes&&x.mes<mesHoje).reduce((s,x)=>s+valEmAberto(x),0);
+
+  const sem=planProjetar(base,{},c);
+  const primeiroReceb=planAddM(c.fechIni,c.atraso);
+  const mesesFech=planMesesEntre(c.fechIni,c.ate);
+  const nFech=mesesFech.length;
+  const liq=1-(c.desc/100);
+  // Quanto precisa entrar de projetos novos no período (bruto), sem olhar prazo
+  const pior=sem.filter(r=>r.m>=c.de).reduce((a,r)=>Math.max(a,c.reserva-r.fim),0);
+  const brutoNec=liq>0?pior/liq:0;
+  // Ritmo sugerido: um valor fixo por mês + um reforço no 1º mês para cobrir
+  // a espera até as parcelas começarem a cair.
+  const ritmo=nFech?Math.ceil(brutoNec/nFech/100)*100:0;
+  const montar=L=>{const o={};mesesFech.forEach((f,i)=>o[f]=ritmo+(i===0?L:0));return o;};
+  const okSched=sc=>planProjetar(base,sc,c).every(r=>r.m<primeiroReceb||r.fim>=c.reserva-0.005);
+  let reforco=0;
+  if(nFech&&liq>0&&!okSched(montar(0))){
+    let hi=50000;while(!okSched(montar(hi))&&hi<1e9)hi*=2;
+    if(okSched(montar(hi))){let lo=0;for(let i=0;i<50;i++){const mid=(lo+hi)/2;if(okSched(montar(mid)))hi=mid;else lo=mid;}reforco=Math.ceil(hi/100)*100;}
+  }
+  const sched=nFech?montar(reforco):{};
+  const totalSched=Object.keys(sched).reduce((a,k)=>a+sched[k],0);
+  const manual=(c.manual!==''&&!isNaN(parseFloat(c.manual)))?parseFloat(c.manual):null;
+  const usado={};
+  if(manual!==null)mesesFech.forEach(f=>usado[f]=manual);else Object.assign(usado,sched);
+  const com=planProjetar(base,usado,c);
+  const impossivel=false;
+  const antesProblema=sem.filter(r=>r.m<primeiroReceb&&r.fim<c.reserva-0.005);
+  const minSem=sem.reduce((a,r)=>r.fim<a.fim?r:a,sem[0]||{fim:0,m:mesHoje});
+  const minCom=com.reduce((a,r)=>r.fim<a.fim?r:a,com[0]||{fim:0,m:mesHoje});
+  const cxInicioPeriodo=(com.find(r=>r.m===c.de)||{ini:c.caixaIni}).ini;
+  const fechPorMes=usado;
+
+  const orcs=await getOrcsData();
+  const abertos=orcs.filter(o=>o.status==='enviado');
+  const pipe=abertos.reduce((s,o)=>s+(parseFloat(o.valor)||0),0);
+  const pipePond=abertos.reduce((s,o)=>s+(parseFloat(o.valor)||0)*((parseFloat(o.probabilidade)||0)/100),0);
+
+  const lbl='font-size:11px;color:var(--text2);font-weight:500;display:block;margin-bottom:4px';
+  const inp='width:100%;box-sizing:border-box;padding:7px 9px';
+  const optsTodos=planMesesEntre(planAddM(mesHoje,-12),planAddM(mesHoje,60));
+  const optHtml=sel=>optsTodos.map(m=>'<option value="'+m+'"'+(m===sel?' selected':'')+'>'+getMesLabel(m)+'</option>').join('');
+  const cor=v=>v>=c.reserva-0.005?'var(--accent)':'var(--accent2)';
+
+  let aviso='';
+  if(impossivel||antesProblema.length){
+    const pm=antesProblema[0];
+    aviso='<div style="background:#FDECEA;border:1px solid #F5C2B8;color:#8A2A10;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px">'+
+      '<b>Atenção:</b> '+(pm?'o caixa fica abaixo da reserva em <b>'+getMesLabel(pm.m)+'</b> ('+fmt(pm.fim)+'), antes de chegar o primeiro recebimento de projeto novo ('+getMesLabel(primeiroReceb)+'). Para cobrir esse mês, é preciso fechar e receber antes — ajuste "Começar a fechar em" ou o prazo do 1º recebimento.':'não há valor de fechamento que cubra o período com esses parâmetros.')+
+      '</div>';
+  }
+
+  const linhasTab=com.map(r=>{
+    const fora=r.m<c.de;
+    return '<tr style="'+(fora?'opacity:.6':'')+'">'+
+      '<td><div style="font-weight:500;font-size:12px">'+getMesLabel(r.m)+'</div>'+(fora?'<div style="font-size:10px;color:var(--text3)">antes do período</div>':'')+'</td>'+
+      '<td class="td-right td-mono">'+fmt(r.ini)+'</td>'+
+      '<td class="td-right td-mono" style="color:var(--accent)">'+fmt(r.rec)+'</td>'+
+      '<td class="td-right td-mono" style="color:var(--accent2)">'+fmt(r.pag)+'</td>'+
+      '<td class="td-right td-mono" style="color:var(--blue)">'+(r.novos?fmt(r.novos):'—')+'</td>'+
+      '<td class="td-right td-mono" style="font-weight:600;color:'+cor(r.fim)+'">'+fmt(r.fim)+'</td>'+
+      '<td class="td-right td-mono">'+(fechPorMes[r.m]?fmt(fechPorMes[r.m]):'—')+'</td>'+
+    '</tr>';
+  }).join('');
+
+  document.getElementById('content').innerHTML=
+    '<div class="table-wrap" style="margin-bottom:20px">'+
+      '<div class="table-header"><div class="table-title">Parâmetros do planejamento</div>'+
+        '<button class="btn-clear-filter" onclick="planResetar()">Voltar ao padrão</button></div>'+
+      '<div style="padding:16px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px">'+
+        '<div><label style="'+lbl+'">Período de</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'de\',this.value)">'+optHtml(c.de)+'</select></div>'+
+        '<div><label style="'+lbl+'">até</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'ate\',this.value)">'+optHtml(c.ate)+'</select></div>'+
+        '<div><label style="'+lbl+'">Caixa hoje (R$)</label><input class="search-input" style="'+inp+'" type="number" step="100" value="'+(caixaInformado?c.caixa:'')+'" placeholder="'+caixaAuto.toFixed(2)+'" onchange="planSet(\'caixa\',this.value)">'+
+          '<div style="font-size:10px;color:var(--text3);margin-top:3px">'+(caixaInformado?'valor digitado':'saldo salvo no Dashboard ('+getMesLabel(mesHoje)+')')+'</div></div>'+
+        '<div><label style="'+lbl+'">Reserva mínima (R$)</label><input class="search-input" style="'+inp+'" type="number" step="1000" value="'+c.reserva+'" onchange="planSet(\'reserva\',this.value)"></div>'+
+        '<div><label style="'+lbl+'">Imposto + comissões (%)</label><input class="search-input" style="'+inp+'" type="number" step="0.25" value="'+c.desc+'" onchange="planSet(\'desc\',this.value)">'+
+          '<div style="font-size:10px;color:var(--text3);margin-top:3px">sai de cada real recebido</div></div>'+
+        '<div><label style="'+lbl+'">Começar a fechar em</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'fechIni\',this.value)">'+optHtml(c.fechIni)+'</select></div>'+
+        '<div><label style="'+lbl+'">1º recebimento após fechar (meses)</label><input class="search-input" style="'+inp+'" type="number" min="0" step="1" value="'+c.atraso+'" onchange="planSet(\'atraso\',this.value)"></div>'+
+        '<div><label style="'+lbl+'">Parcelas do cliente</label><input class="search-input" style="'+inp+'" type="number" min="1" step="1" value="'+c.parcelas+'" onchange="planSet(\'parcelas\',this.value)"></div>'+
+        '<div><label style="'+lbl+'">Simular fechamento mensal (R$)</label><input class="search-input" style="'+inp+'" type="number" step="1000" value="'+(manual!==null?manual:'')+'" placeholder="calculado" onchange="planSet(\'manual\',this.value)">'+
+          '<div style="font-size:10px;color:var(--text3);margin-top:3px">vazio = usa o necessário</div></div>'+
+        '<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)"><input type="checkbox" '+(c.vencidos?'checked':'')+' onchange="planSet(\'vencidos\',this.checked)"> Contar recebíveis vencidos ('+fmt(recVencidos)+')</div>'+
+      '</div>'+
+    '</div>'+
+    aviso+
+    '<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">'+
+      '<div class="metric-card"><div class="metric-label">Faturamento novo necessário</div><div class="metric-value blue">'+fmt(brutoNec)+'</div><div class="metric-sub">a receber até '+getMesLabel(c.ate)+', já com imposto e comissões</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Ritmo de fechamento</div><div class="metric-value blue">'+fmt(ritmo)+'<span style="font-size:13px;font-weight:500">/mês</span></div><div class="metric-sub">'+(reforco?'+ reforço de '+fmt(reforco)+' em '+getMesLabel(c.fechIni)+' · ':'')+'total '+fmt(totalSched)+'</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Caixa em 1º de '+getMesLabel(c.de)+'</div><div class="metric-value '+(cxInicioPeriodo>=0?'green':'red')+'">'+fmt(cxInicioPeriodo)+'</div><div class="metric-sub">partindo de '+fmt(c.caixaIni)+' hoje</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Sem novos projetos</div><div class="metric-value red">'+fmt(minSem.fim)+'</div><div class="metric-sub">menor caixa, em '+getMesLabel(minSem.m)+'</div></div>'+
+      '<div class="metric-card"><div class="metric-label">Orçamentos em aberto</div><div class="metric-value">'+fmt(pipe)+'</div><div class="metric-sub">'+abertos.length+' propostas · ponderado '+fmt(pipePond)+'</div></div>'+
+    '</div>'+
+    (manual!==null?'<div style="font-size:12px;color:var(--text2);margin:-12px 0 16px">Simulando '+fmt(manual)+'/mês: menor caixa de '+fmt(minCom.fim)+' em '+getMesLabel(minCom.m)+' — '+(minCom.fim>=c.reserva-0.005?'<b style="color:var(--accent)">cobre o período</b>':'<b style="color:var(--accent2)">não cobre</b>')+'.</div>':'')+
+    '<div class="chart-card" style="margin-bottom:20px"><div class="chart-title">Caixa no fim de cada mês</div><div style="position:relative;height:230px"><canvas id="chart-plan" role="img" aria-label="Caixa projetado"></canvas></div></div>'+
+    '<div class="table-wrap"><div class="table-header"><div class="table-title">Mês a mês</div><div style="font-size:11px;color:var(--text3)">Receitas e despesas = o que está lançado e ainda em aberto</div></div>'+
+      '<table><thead><tr><th>Mês</th><th class="td-right">Caixa início</th><th class="td-right">Receitas previstas</th><th class="td-right">Despesas</th><th class="td-right">Novos projetos (líquido)</th><th class="td-right">Caixa fim</th><th class="td-right">Fechar no mês</th></tr></thead>'+
+      '<tbody>'+linhasTab+'</tbody></table></div>';
+
+  setTimeout(()=>{
+    const ctx=document.getElementById('chart-plan');if(!ctx)return;
+    if(ctx._ch)ctx._ch.destroy();
+    ctx._ch=new Chart(ctx,{type:'line',data:{labels:com.map(r=>getMesLabel(r.m)),datasets:[
+      {label:'Com novos projetos',data:com.map(r=>r.fim),borderColor:'#2A5C45',backgroundColor:'rgba(42,92,69,0.08)',fill:true,tension:.3,pointRadius:3},
+      {label:'Sem novos projetos',data:sem.map(r=>r.fim),borderColor:'#C4411A',borderDash:[4,3],fill:false,tension:.3,pointRadius:2},
+      {label:'Reserva mínima',data:com.map(()=>c.reserva),borderColor:'#1A4A7A',borderDash:[2,4],fill:false,pointRadius:0}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{font:{size:11},boxWidth:12}}},scales:{y:{ticks:{font:{size:10},callback:v=>'R$'+Intl.NumberFormat('pt-BR',{notation:'compact'}).format(v)},grid:{color:'rgba(0,0,0,0.04)'}},x:{ticks:{font:{size:10}},grid:{display:false}}}}});
+  },50);
+}
 
 function renderRelatorios(){
   const opts=getMesesOpts();
