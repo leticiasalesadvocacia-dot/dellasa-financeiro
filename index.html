@@ -6005,11 +6005,12 @@ async function removerBenef(id,nome){
 
 // === PLANEJAMENTO — quanto preciso fechar em projetos ===
 // Tudo ajustável na tela; as escolhas ficam salvas neste navegador.
-const PLAN_PADRAO={de:'',ate:'',caixa:'',reserva:0,desc:14.25,parcelas:3,atraso:1,fechIni:'',manual:'',vencidos:false};
-let planCfg=(function(){try{const s=localStorage.getItem('ds_planejamento');if(s)return Object.assign({},PLAN_PADRAO,JSON.parse(s));}catch(e){}return Object.assign({},PLAN_PADRAO);})();
+const PLAN_PADRAO={de:'',ate:'',caixa:'',reserva:0,desc:'',parcelas:3,atraso:1,fechIni:'',manual:'',vencidos:false,pausados:false,pausIni:''};
+let planCfg=(function(){try{const s=localStorage.getItem('ds_planejamento');if(s){const o=Object.assign({},PLAN_PADRAO,JSON.parse(s));if(o.desc===14.25)o.desc='';return o;}}catch(e){}return Object.assign({},PLAN_PADRAO);})();
 function planSalvar(){try{localStorage.setItem('ds_planejamento',JSON.stringify(planCfg));}catch(e){}}
 function planSet(k,v){
-  if(['reserva','desc','parcelas','atraso'].includes(k))v=parseFloat(String(v).replace(',','.'))||0;
+  if(k==='desc'&&String(v).trim()==='')v='';
+  else if(['reserva','desc','parcelas','atraso'].includes(k))v=parseFloat(String(v).replace(',','.'))||0;
   if(k==='parcelas')v=Math.max(1,Math.round(v));
   if(k==='atraso')v=Math.max(0,Math.round(v));
   planCfg[k]=v;planSalvar();render();
@@ -6030,8 +6031,8 @@ function planProjetar(base,sched,c){
   let cx=c.caixaIni;
   return base.map(b=>{
     const ini=cx, nv=novos[b.m]||0;
-    cx=ini+b.rec-b.pag+nv;
-    return {m:b.m,ini:ini,rec:b.rec,pag:b.pag,novos:nv,fim:cx};
+    cx=ini+b.rec-b.pag+(b.paus||0)+nv;
+    return {m:b.m,ini:ini,rec:b.rec,pag:b.pag,paus:b.paus||0,novos:nv,fim:cx};
   });
 }
 
@@ -6047,6 +6048,19 @@ async function renderPlanejamento(all){
   const caixaAuto=saldos[mesHoje]||0;
   const caixaInformado=(c.caixa!==''&&c.caixa!==null&&!isNaN(parseFloat(c.caixa)));
   c.caixaIni=caixaInformado?parseFloat(c.caixa):caixaAuto;
+  // Imposto + comissões: puxa da aba Impostos e dos parâmetros de comissão,
+  // a menos que tenha sido digitado um valor no próprio Planejamento.
+  const impCfgP=await getImpCfg();
+  const impEst=impAliqEstimada(c.de,await getImpostosMes(),impCfgP);
+  const comCfgP=await getComConfig();
+  const benefP=await getComBenef();
+  const pctCom=benefP.reduce((a,b)=>a+(b.percentual||0),0);
+  const comEf=(1-(comCfgP.imposto||0))*pctCom;
+  const descAuto=Math.round((impEst.aliq+comEf)*10000)/100;
+  const descManual=(c.desc!==''&&c.desc!==null&&!isNaN(parseFloat(c.desc)));
+  c.desc=descManual?parseFloat(c.desc):descAuto;
+  const descInfo=descManual?'valor digitado · automático seria '+descAuto.toFixed(2).replace('.',',')+'%':
+    'imposto '+(impEst.aliq*100).toFixed(2).replace('.',',')+'% ('+impEst.origem+') + comissões '+(comEf*100).toFixed(2).replace('.',',')+'%';
 
   // Linha do tempo: do mês atual até o fim do período
   const linha=planMesesEntre(mesHoje,c.ate);
@@ -6063,6 +6077,24 @@ async function renderPlanejamento(all){
     return {m:m,rec:rec,pag:pag};
   });
   const recVencidos=all.filter(x=>x.tipo==='receber'&&x.mes&&x.mes<mesHoje).reduce((s,x)=>s+valEmAberto(x),0);
+
+  // Projetos pausados: já fechados, sem data — opcionalmente entram a partir
+  // do mês escolhido, cada um nas suas parcelas, já descontado imposto e comissões.
+  const pausadosLista=await getPausados();
+  const totalPaus=pausadosLista.reduce((a,x)=>a+(parseFloat(x.valor)||0),0);
+  const pausIni=c.pausIni||planAddM(c.fechIni,c.atraso);
+  if(c.pausados){
+    const liqP=1-(c.desc/100);
+    pausadosLista.forEach(x=>{
+      const v=parseFloat(x.valor)||0;if(!v)return;
+      const n=Math.max(1,parseInt(x.parcelas)||c.parcelas);
+      for(let k=0;k<n;k++){
+        const m=planAddM(pausIni,k);
+        const b=base.find(y=>y.m===m);
+        if(b)b.paus=(b.paus||0)+v/n*liqP;
+      }
+    });
+  }
 
   const sem=planProjetar(base,{},c);
   const primeiroReceb=planAddM(c.fechIni,c.atraso);
@@ -6121,6 +6153,7 @@ async function renderPlanejamento(all){
       '<td class="td-right td-mono">'+fmt(r.ini)+'</td>'+
       '<td class="td-right td-mono" style="color:var(--accent)">'+fmt(r.rec)+'</td>'+
       '<td class="td-right td-mono" style="color:var(--accent2)">'+fmt(r.pag)+'</td>'+
+      (c.pausados?'<td class="td-right td-mono" style="color:var(--accent)">'+(r.paus?fmt(r.paus):'—')+'</td>':'')+
       '<td class="td-right td-mono" style="color:var(--blue)">'+(r.novos?fmt(r.novos):'—')+'</td>'+
       '<td class="td-right td-mono" style="font-weight:600;color:'+cor(r.fim)+'">'+fmt(r.fim)+'</td>'+
       '<td class="td-right td-mono">'+(fechPorMes[r.m]?fmt(fechPorMes[r.m]):'—')+'</td>'+
@@ -6137,14 +6170,16 @@ async function renderPlanejamento(all){
         '<div><label style="'+lbl+'">Caixa hoje (R$)</label><input class="search-input" style="'+inp+'" type="number" step="100" value="'+(caixaInformado?c.caixa:'')+'" placeholder="'+caixaAuto.toFixed(2)+'" onchange="planSet(\'caixa\',this.value)">'+
           '<div style="font-size:10px;color:var(--text3);margin-top:3px">'+(caixaInformado?'valor digitado':'saldo salvo no Dashboard ('+getMesLabel(mesHoje)+')')+'</div></div>'+
         '<div><label style="'+lbl+'">Reserva mínima (R$)</label><input class="search-input" style="'+inp+'" type="number" step="1000" value="'+c.reserva+'" onchange="planSet(\'reserva\',this.value)"></div>'+
-        '<div><label style="'+lbl+'">Imposto + comissões (%)</label><input class="search-input" style="'+inp+'" type="number" step="0.25" value="'+c.desc+'" onchange="planSet(\'desc\',this.value)">'+
-          '<div style="font-size:10px;color:var(--text3);margin-top:3px">sai de cada real recebido</div></div>'+
+        '<div><label style="'+lbl+'">Imposto + comissões (%)</label><input class="search-input" style="'+inp+'" type="number" step="0.25" value="'+(descManual?c.desc:'')+'" placeholder="'+descAuto.toFixed(2)+'" onchange="planSet(\'desc\',this.value)">'+
+          '<div style="font-size:10px;color:var(--text3);margin-top:3px">'+descInfo+'</div></div>'+
         '<div><label style="'+lbl+'">Começar a fechar em</label><select class="filter-select" style="'+inp+'" onchange="planSet(\'fechIni\',this.value)">'+optHtml(c.fechIni)+'</select></div>'+
         '<div><label style="'+lbl+'">1º recebimento após fechar (meses)</label><input class="search-input" style="'+inp+'" type="number" min="0" step="1" value="'+c.atraso+'" onchange="planSet(\'atraso\',this.value)"></div>'+
         '<div><label style="'+lbl+'">Parcelas do cliente</label><input class="search-input" style="'+inp+'" type="number" min="1" step="1" value="'+c.parcelas+'" onchange="planSet(\'parcelas\',this.value)"></div>'+
         '<div><label style="'+lbl+'">Simular fechamento mensal (R$)</label><input class="search-input" style="'+inp+'" type="number" step="1000" value="'+(manual!==null?manual:'')+'" placeholder="calculado" onchange="planSet(\'manual\',this.value)">'+
           '<div style="font-size:10px;color:var(--text3);margin-top:3px">vazio = usa o necessário</div></div>'+
         '<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)"><input type="checkbox" '+(c.vencidos?'checked':'')+' onchange="planSet(\'vencidos\',this.checked)"> Contar recebíveis vencidos ('+fmt(recVencidos)+')</div>'+
+        '<div><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-bottom:4px"><input type="checkbox" '+(c.pausados?'checked':'')+' onchange="planSet(\'pausados\',this.checked)"> Incluir projetos pausados ('+fmt(totalPaus)+', '+pausadosLista.length+')</label>'+
+          (c.pausados?'<select class="filter-select" style="'+inp+'" onchange="planSet(\'pausIni\',this.value)">'+optHtml(pausIni)+'</select><div style="font-size:10px;color:var(--text3);margin-top:3px">mês em que voltam a pagar</div>':'')+'</div>'+
       '</div>'+
     '</div>'+
     aviso+
@@ -6158,7 +6193,7 @@ async function renderPlanejamento(all){
     (manual!==null?'<div style="font-size:12px;color:var(--text2);margin:-12px 0 16px">Simulando '+fmt(manual)+'/mês: menor caixa de '+fmt(minCom.fim)+' em '+getMesLabel(minCom.m)+' — '+(minCom.fim>=c.reserva-0.005?'<b style="color:var(--accent)">cobre o período</b>':'<b style="color:var(--accent2)">não cobre</b>')+'.</div>':'')+
     '<div class="chart-card" style="margin-bottom:20px"><div class="chart-title">Caixa no fim de cada mês</div><div style="position:relative;height:230px"><canvas id="chart-plan" role="img" aria-label="Caixa projetado"></canvas></div></div>'+
     '<div class="table-wrap"><div class="table-header"><div class="table-title">Mês a mês</div><div style="font-size:11px;color:var(--text3)">Receitas e despesas = o que está lançado e ainda em aberto</div></div>'+
-      '<table><thead><tr><th>Mês</th><th class="td-right">Caixa início</th><th class="td-right">Receitas previstas</th><th class="td-right">Despesas</th><th class="td-right">Novos projetos (líquido)</th><th class="td-right">Caixa fim</th><th class="td-right">Fechar no mês</th></tr></thead>'+
+      '<table><thead><tr><th>Mês</th><th class="td-right">Caixa início</th><th class="td-right">Receitas previstas</th><th class="td-right">Despesas</th>'+(c.pausados?'<th class="td-right">Pausados (líquido)</th>':'')+'<th class="td-right">Novos projetos (líquido)</th><th class="td-right">Caixa fim</th><th class="td-right">Fechar no mês</th></tr></thead>'+
       '<tbody>'+linhasTab+'</tbody></table></div>';
 
   setTimeout(()=>{
