@@ -2538,6 +2538,18 @@ async function renderDashboard(all,doMes,recMes,pagMes){
   const pagAberto=pag.total-pag.recebido-pag.parcial_pago;
   const nVencRec=recMes.filter(x=>x.status==='vencido').length;
   const nPendPag=pagMes.filter(x=>!['pago'].includes(x.status)).length;
+  // Valor da hora no mês selecionado
+  const horaCfgD=await getHoraCfg();
+  const horaDescD=await horaDescPct(currentMes);
+  const horaCustoD=horaCustoFixo(all.filter(x=>x.mes===currentMes),horaCfgD);
+  const horaRD=horaCalc(horaCustoD,horaCfgD,horaDescD);
+  const horaDashHtml='<div class="table-wrap" style="margin-bottom:20px">'+
+    '<div class="table-header"><div class="table-title">⏱ Valor da nossa hora — '+getMesLabel(currentMes)+'</div>'+
+    '<button class="btn-clear-filter" onclick="showPage(\'planejamento\')">Simular projeto / ajustar parâmetros</button></div>'+
+    '<div style="padding:14px 18px">'+(horaCustoD>0&&horaRD.h>0?horaBoxes(horaRD,horaCfgD,horaDescD)+
+      '<div style="font-size:11px;color:var(--text3);margin-top:8px">'+horaDetalhe(horaCustoD,horaRD,horaCfgD,'de custo fixo no mês')+'</div>'
+      :'<div style="font-size:12px;color:var(--text3)">Sem despesas fixas lançadas neste mês para calcular.</div>')+
+    '</div></div>';
 
   document.getElementById('content').innerHTML=`
     <div class="metrics">
@@ -2555,7 +2567,7 @@ async function renderDashboard(all,doMes,recMes,pagMes){
         </div>
       </div>
     </div>
-
+    ${horaDashHtml}
     <div class="table-wrap" style="margin-bottom:20px">
       <div class="table-header">
         <div class="table-title">💰 Caixa do dia — ${getMesLabel(currentMes)}</div>
@@ -6003,6 +6015,65 @@ async function removerBenef(id,nome){
 
 /* ========== FIM COMISSÕES ========== */
 
+// === VALOR DA HORA — quanto custa e quanto cobrar por hora de trabalho ===
+// Custo da hora = custo fixo do mês ÷ horas produtivas da equipe.
+// Custo fixo = tudo que está em A Pagar no mês, menos o que é proporcional ao
+// faturamento (impostos, comissões, colaboradores externos e indicações), que
+// entra depois como % sobre o preço. Parâmetros salvos em comissoes_config (chaves hora_*).
+const HORA_CATS_FORA=['Impostos','Comissões','Colaboradores externos','Indicações'];
+async function getHoraCfg(){
+  const c=await getComConfig();
+  const g=(k,d)=>{const v=c['hora_'+k];return (v===undefined||v===null||isNaN(v))?d:v;};
+  return {pessoas:g('pessoas',3),horas:g('horas',168),prod:g('prod',0.75),margem:g('margem',0.20),emprest:g('emprest',1),meses:g('meses',6)};
+}
+async function horaSet(k,v){
+  let n;
+  if(k==='emprest')n=v?1:0;
+  else if(k==='prod'||k==='margem'){n=parseFloat(String(v).replace('%','').replace(',','.'));if(isNaN(n)){render();return;}n=Math.min(100,Math.max(0,n))/100;}
+  else{n=planNum(v);if(isNaN(n)||n<0){render();return;}}
+  try{await saveComConfig('hora_'+k,n);}catch(e){showToast('Erro ao salvar: '+(e.message||e));}
+  render();
+}
+function horaCustoFixo(itens,cfg){
+  return itens.filter(x=>x.tipo==='pagar'&&!x.imposto_ref&&!x.comissao_ref&&!HORA_CATS_FORA.includes(x.cat)&&
+    (cfg.emprest||!/^empr[eé]stimo/i.test(x.cat||''))).reduce((s,x)=>s+valEf(x),0);
+}
+// imposto + comissões da equipe, em fração (ex.: 0.1426)
+async function horaDescPct(mes){
+  const impEst=impAliqEstimada(mes,await getImpostosMes(),await getImpCfg());
+  const comCfg=await getComConfig();
+  const pctCom=(await getComBenef()).reduce((a,b)=>a+(b.percentual||0),0);
+  return (impEst.aliq||0)+(1-(comCfg.imposto||0))*pctCom;
+}
+function horaCalc(custoMes,cfg,desc){
+  const h=cfg.pessoas*cfg.horas*cfg.prod;
+  const custo=h>0?custoMes/h:0;
+  const min=desc<1?custo/(1-desc):0;
+  const den=1-desc-cfg.margem;
+  return {h:h,custo:custo,min:min,sug:den>0?custo/den:0};
+}
+const horaPct=v=>(v*100).toFixed(1).replace('.',',').replace(',0','')+'%';
+function horaBoxes(r,cfg,desc){
+  const box=(bg,cor,t,v,sb)=>'<div style="padding:12px 14px;background:'+bg+';border-radius:10px"><div style="font-size:11px;color:'+cor+';margin-bottom:4px;font-weight:600">'+t+'</div><div style="font-size:18px;font-weight:700;font-family:var(--mono);color:'+cor+'">'+v+'</div><div style="font-size:10px;color:var(--text3);margin-top:3px">'+sb+'</div></div>';
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">'+
+    box('var(--surface2)','var(--text)','Custo da hora',fmt(r.custo)+'/h','o que custa manter a empresa por hora')+
+    box('var(--accent2-light)','var(--accent2)','Preço mínimo da hora',fmt(r.min)+'/h','empata: cobre o custo + '+horaPct(desc)+' de imposto e comissões')+
+    box('var(--accent-light)','var(--accent)','Preço com margem de '+horaPct(cfg.margem),r.sug>0?fmt(r.sug)+'/h':'—',r.sug>0?'valor sugerido para orçar':'margem + imposto passam de 100%')+
+  '</div>';
+}
+function horaDetalhe(custoMes,r,cfg,txtCusto){
+  return fmt(custoMes)+' '+txtCusto+' ÷ '+Math.round(r.h).toLocaleString('pt-BR')+' h produtivas ('+
+    cfg.pessoas.toLocaleString('pt-BR')+' pessoa(s) × '+cfg.horas.toLocaleString('pt-BR')+' h × '+horaPct(cfg.prod)+' em projetos)';
+}
+let _horaUlt=null;
+function horaProj(v){
+  try{localStorage.setItem('ds_hora_proj',v);}catch(e){}
+  const el=document.getElementById('hora-proj-res');if(!el||!_horaUlt)return;
+  const h=planNum(v);
+  if(isNaN(h)||h<=0){el.innerHTML='<span style="color:var(--text3)">digite as horas estimadas</span>';return;}
+  el.innerHTML='mínimo <b style="color:var(--accent2);font-family:var(--mono)">'+fmt(h*_horaUlt.min)+'</b> · com margem <b style="color:var(--accent);font-family:var(--mono)">'+(_horaUlt.sug>0?fmt(h*_horaUlt.sug):'—')+'</b> · custo '+fmt(h*_horaUlt.custo);
+}
+
 // === PLANEJAMENTO — quanto preciso faturar em projetos novos ===
 // Conta de caixa simples: caixa de hoje + o que está lançado para entrar
 // - o que está lançado para sair. Onde o caixa fica abaixo da reserva,
@@ -6135,6 +6206,36 @@ async function renderPlanejamento(all){
     '</tr>';
   }).join('');
 
+  // Valor da hora — base: média do custo fixo dos últimos N meses (até o mês atual)
+  const horaCfg=await getHoraCfg();
+  const horaMeses=planMesesEntre(planAddM(mesHoje,-(Math.max(1,horaCfg.meses)-1)),mesHoje);
+  const horaCustoMed=horaMeses.reduce((s,m)=>s+horaCustoFixo(all.filter(x=>x.mes===m),horaCfg),0)/horaMeses.length;
+  const horaR=horaCalc(horaCustoMed,horaCfg,desc/100);
+  _horaUlt=horaR;
+  let horaProjV='';try{horaProjV=localStorage.getItem('ds_hora_proj')||'';}catch(e){}
+  const hInp='width:100%;box-sizing:border-box;padding:7px 9px';
+  const horaHtml='<div class="table-wrap" style="margin-bottom:20px">'+
+    '<div class="table-header"><div class="table-title">⏱ Valor da nossa hora</div><div style="font-size:11px;color:var(--text3)">para precificar projetos</div></div>'+
+    '<div style="padding:14px 18px">'+horaBoxes(horaR,horaCfg,desc/100)+
+      '<div style="font-size:11px;color:var(--text3);margin-top:8px">'+horaDetalhe(horaCustoMed,horaR,horaCfg,'de custo fixo médio/mês ('+getMesLabel(horaMeses[0])+' a '+getMesLabel(mesHoje)+')')+
+      '. Fora do custo fixo: impostos, comissões, colaboradores externos e indicações (entram como % ou custo do projeto).</div>'+
+      '<div style="margin-top:14px;padding:12px 14px;border:1px dashed var(--border2);border-radius:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">'+
+        '<label style="font-size:12px;font-weight:600;color:var(--text)">Simular projeto de</label>'+
+        '<input class="search-input" style="width:90px;padding:7px 9px" type="text" inputmode="decimal" value="'+horaProjV+'" placeholder="horas" oninput="horaProj(this.value)">'+
+        '<span style="font-size:12px;color:var(--text2)">horas →</span><span id="hora-proj-res" style="font-size:12px;color:var(--text2)"></span>'+
+      '</div>'+
+    '</div>'+
+    '<div style="padding:12px 18px 16px;border-top:1px solid var(--border);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;align-items:start">'+
+      '<div><label style="'+lbl+'">Pessoas produzindo</label><input class="search-input" style="'+hInp+'" type="text" inputmode="decimal" value="'+horaCfg.pessoas.toLocaleString('pt-BR')+'" onchange="horaSet(\'pessoas\',this.value)"><div style="'+sub+'">quem calcula/modela projetos</div></div>'+
+      '<div><label style="'+lbl+'">Horas por pessoa/mês</label><input class="search-input" style="'+hInp+'" type="text" inputmode="decimal" value="'+horaCfg.horas.toLocaleString('pt-BR')+'" onchange="horaSet(\'horas\',this.value)"><div style="'+sub+'">ex.: 8h × 21 dias = 168</div></div>'+
+      '<div><label style="'+lbl+'">Tempo em projetos (%)</label><input class="search-input" style="'+hInp+'" type="text" inputmode="decimal" value="'+String(Math.round(horaCfg.prod*1000)/10).replace('.',',')+'" onchange="horaSet(\'prod\',this.value)"><div style="'+sub+'">o resto é reunião, revisão, admin</div></div>'+
+      '<div><label style="'+lbl+'">Margem de lucro (%)</label><input class="search-input" style="'+hInp+'" type="text" inputmode="decimal" value="'+String(Math.round(horaCfg.margem*1000)/10).replace('.',',')+'" onchange="horaSet(\'margem\',this.value)"><div style="'+sub+'">sobre o preço final</div></div>'+
+      '<div><label style="'+lbl+'">Base do custo fixo</label><select class="filter-select" style="'+hInp+'" onchange="horaSet(\'meses\',this.value)">'+
+        [3,6,12].map(n=>'<option value="'+n+'"'+(horaCfg.meses===n?' selected':'')+'>média de '+n+' meses</option>').join('')+'</select></div>'+
+      '<div><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-top:18px"><input type="checkbox" '+(horaCfg.emprest?'checked':'')+' onchange="horaSet(\'emprest\',this.checked)"> Contar parcelas de empréstimo no custo</label></div>'+
+    '</div>'+
+  '</div>';
+
   document.getElementById('content').innerHTML=
     // Resposta principal
     '<div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">'+
@@ -6166,11 +6267,13 @@ async function renderPlanejamento(all){
       '</div>':'')+
     '</div>'+
 
+    horaHtml+
     '<div class="chart-card" style="margin-bottom:20px"><div class="chart-title">Caixa no fim de cada mês</div><div style="position:relative;height:220px"><canvas id="chart-plan" role="img" aria-label="Caixa projetado"></canvas></div></div>'+
     '<div class="table-wrap"><div class="table-header"><div style="display:flex;align-items:center;gap:12px"><div class="table-title">Mês a mês</div><button class="btn export" onclick="planPDF()" style="padding:5px 10px;font-size:12px"><i class="ti ti-printer"></i> Exportar PDF</button></div><div style="font-size:11px;color:var(--text3)">Entra e sai = o que está lançado e ainda em aberto · Faturar = projetos novos que precisam entrar no mês (com imposto e comissões de '+desc.toFixed(2).replace('.',',')+'%) · Caixa fim já conta com eles</div></div>'+
       '<table><thead><tr><th>Mês</th><th class="td-right">Caixa início</th><th class="td-right">Entra</th>'+(c.pausados?'<th class="td-right">Pausados (líquido)</th>':'')+'<th class="td-right">Sai</th><th class="td-right">Faturar no mês</th><th class="td-right">Caixa fim</th></tr></thead>'+
       '<tbody>'+tabela+'</tbody></table></div>';
 
+  horaProj(horaProjV);
   setTimeout(()=>{
     const ctx=document.getElementById('chart-plan');if(!ctx)return;
     if(ctx._ch)ctx._ch.destroy();
