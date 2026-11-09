@@ -2548,7 +2548,7 @@ async function renderDashboard(all,doMes,recMes,pagMes){
     '<button class="btn-clear-filter" onclick="showPage(\'planejamento\')">Simular projeto / ajustar parâmetros</button></div>'+
     '<div style="padding:14px 18px">'+(horaCustoD>0&&horaRD.h>0?horaBoxes(horaRD,horaCfgD,horaDescD)+
       '<div style="font-size:11px;color:var(--text3);margin-top:8px">'+horaDetalhe(horaCustoD,horaRD,horaCfgD,'de custo fixo no mês')+'</div>'
-      :'<div style="font-size:12px;color:var(--text3)">Sem despesas fixas lançadas neste mês para calcular.</div>')+
+      :'<div style="font-size:12px;color:var(--text3)">'+(horaRD.h>0?'Sem despesas fixas lançadas neste mês para calcular.':'Cadastre no Planejamento quem trabalha nos projetos e as horas de cada um.')+'</div>')+
     '</div></div>';
 
   document.getElementById('content').innerHTML=`
@@ -6024,7 +6024,43 @@ const HORA_CATS_FORA=['Impostos','Comissões','Colaboradores externos','Indicaç
 async function getHoraCfg(){
   const c=await getComConfig();
   const g=(k,d)=>{const v=c['hora_'+k];return (v===undefined||v===null||isNaN(v))?d:v;};
-  return {pessoas:g('pessoas',3),horas:g('horas',168),prod:g('prod',0.75),margem:g('margem',0.20),emprest:g('emprest',1),meses:g('meses',6)};
+  // equipe: uma chave por pessoa ('hora_p:Nome' = horas/mês); valor negativo = removida
+  const equipe=Object.keys(c).filter(k=>k.indexOf('hora_p:')===0&&!isNaN(c[k])&&c[k]>=0)
+    .map(k=>({nome:k.slice(7),horas:c[k]})).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const horasTot=equipe.reduce((s,x)=>s+x.horas,0);
+  return {equipe:equipe,horasTot:horasTot,prod:g('prod',0.75),margem:g('margem',0.20),emprest:g('emprest',1),meses:g('meses',6)};
+}
+const horaEsc=t=>String(t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const horaArg=t=>"decodeURIComponent('"+encodeURIComponent(t).replace(/'/g,'%27')+"')";
+async function horaPessoaHoras(nome,v){
+  const n=planNum(v);
+  if(isNaN(n)||n<0){showToast('Horas inválidas.');render();return;}
+  try{await saveComConfig('hora_p:'+nome,n);}catch(e){showToast('Erro ao salvar: '+(e.message||e));}
+  render();
+}
+async function horaPessoaRenomear(antigo,novo){
+  novo=String(novo||'').trim();
+  if(!novo||novo===antigo){render();return;}
+  const cfg=await getHoraCfg();
+  if(cfg.equipe.some(x=>x.nome===novo)){showToast(novo+' já está na lista.');render();return;}
+  const p=cfg.equipe.find(x=>x.nome===antigo);if(!p){render();return;}
+  try{await saveComConfig('hora_p:'+novo,p.horas);await saveComConfig('hora_p:'+antigo,-1);}catch(e){showToast('Erro ao salvar: '+(e.message||e));}
+  render();
+}
+async function horaPessoaRemover(nome){
+  if(!confirm('Tirar '+nome+' do cálculo da hora?'))return;
+  try{await saveComConfig('hora_p:'+nome,-1);}catch(e){showToast('Erro ao salvar: '+(e.message||e));}
+  render();
+}
+async function horaPessoaAdd(){
+  const nEl=document.getElementById('hora-nova-nome'),hEl=document.getElementById('hora-nova-horas');
+  const nome=(nEl&&nEl.value||'').trim(), h=planNum(hEl&&hEl.value);
+  if(!nome){showToast('Digite o nome.');return;}
+  if(isNaN(h)||h<0){showToast('Digite as horas por mês (ex.: 168).');return;}
+  const cfg=await getHoraCfg();
+  if(cfg.equipe.some(x=>x.nome===nome)){showToast(nome+' já está na lista — ajuste as horas na linha dele(a).');return;}
+  try{await saveComConfig('hora_p:'+nome,h);}catch(e){showToast('Erro ao salvar: '+(e.message||e));return;}
+  render();
 }
 async function horaSet(k,v){
   let n;
@@ -6046,7 +6082,7 @@ async function horaDescPct(mes){
   return (impEst.aliq||0)+(1-(comCfg.imposto||0))*pctCom;
 }
 function horaCalc(custoMes,cfg,desc){
-  const h=cfg.pessoas*cfg.horas*cfg.prod;
+  const h=cfg.horasTot*cfg.prod;
   const custo=h>0?custoMes/h:0;
   const min=desc<1?custo/(1-desc):0;
   const den=1-desc-cfg.margem;
@@ -6063,7 +6099,7 @@ function horaBoxes(r,cfg,desc){
 }
 function horaDetalhe(custoMes,r,cfg,txtCusto){
   return fmt(custoMes)+' '+txtCusto+' ÷ '+Math.round(r.h).toLocaleString('pt-BR')+' h produtivas ('+
-    cfg.pessoas.toLocaleString('pt-BR')+' pessoa(s) × '+cfg.horas.toLocaleString('pt-BR')+' h × '+horaPct(cfg.prod)+' em projetos)';
+    cfg.equipe.length+' pessoa(s), '+cfg.horasTot.toLocaleString('pt-BR')+' h/mês × '+horaPct(cfg.prod)+' em projetos)';
 }
 let _horaUlt=null;
 function horaProj(v){
@@ -6214,6 +6250,24 @@ async function renderPlanejamento(all){
   _horaUlt=horaR;
   let horaProjV='';try{horaProjV=localStorage.getItem('ds_hora_proj')||'';}catch(e){}
   const hInp='width:100%;box-sizing:border-box;padding:7px 9px';
+  const horaEquipeHtml='<div style="padding:14px 18px 4px;border-top:1px solid var(--border)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><label style="'+lbl+';margin:0">Quem produz e horas por mês</label>'+
+    '<span style="font-size:11px;color:var(--text3)">total: <b style="color:var(--text)">'+horaCfg.horasTot.toLocaleString('pt-BR')+' h/mês</b></span></div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px;max-width:560px">'+
+    horaCfg.equipe.map(x=>'<div style="display:flex;gap:8px;align-items:center">'+
+      '<input class="search-input" style="flex:1;padding:7px 9px" type="text" value="'+horaEsc(x.nome)+'" onchange="horaPessoaRenomear('+horaArg(x.nome)+',this.value)">'+
+      '<input class="search-input" style="width:90px;padding:7px 9px;text-align:right" type="text" inputmode="decimal" value="'+x.horas.toLocaleString('pt-BR')+'" onchange="horaPessoaHoras('+horaArg(x.nome)+',this.value)">'+
+      '<span style="font-size:11px;color:var(--text3);width:42px">h/mês</span>'+
+      '<button onclick="horaPessoaRemover('+horaArg(x.nome)+')" title="Remover" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:14px;padding:0 4px"><i class="ti ti-trash"></i></button></div>').join('')+
+    (horaCfg.equipe.length?'':'<div style="font-size:12px;color:var(--accent2)">Cadastre quem trabalha nos projetos para calcular a hora.</div>')+
+    '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'+
+      '<input id="hora-nova-nome" class="search-input" style="flex:1;padding:7px 9px" type="text" placeholder="Nome (ex.: Ellen, Estagiário 1)" onkeydown="if(event.key===\'Enter\')horaPessoaAdd()">'+
+      '<input id="hora-nova-horas" class="search-input" style="width:90px;padding:7px 9px;text-align:right" type="text" inputmode="decimal" placeholder="168" onkeydown="if(event.key===\'Enter\')horaPessoaAdd()">'+
+      '<span style="font-size:11px;color:var(--text3);width:42px">h/mês</span>'+
+      '<button class="btn" onclick="horaPessoaAdd()" style="padding:6px 10px;font-size:12px"><i class="ti ti-plus"></i> Adicionar</button></div>'+
+    '</div>'+
+    '<div style="'+sub+';margin-top:6px">referência: 8h × 21 dias = 168 h · estágio de 6h × 21 dias = 126 h · meio período 4h = 84 h</div>'+
+  '</div>';
   const horaHtml='<div class="table-wrap" style="margin-bottom:20px">'+
     '<div class="table-header"><div class="table-title">⏱ Valor da nossa hora</div><div style="font-size:11px;color:var(--text3)">para precificar projetos</div></div>'+
     '<div style="padding:14px 18px">'+horaBoxes(horaR,horaCfg,desc/100)+
@@ -6225,9 +6279,8 @@ async function renderPlanejamento(all){
         '<span style="font-size:12px;color:var(--text2)">horas →</span><span id="hora-proj-res" style="font-size:12px;color:var(--text2)"></span>'+
       '</div>'+
     '</div>'+
-    '<div style="padding:12px 18px 16px;border-top:1px solid var(--border);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;align-items:start">'+
-      '<div><label style="'+lbl+'">Pessoas produzindo</label><input class="search-input" style="'+hInp+'" type="text" inputmode="decimal" value="'+horaCfg.pessoas.toLocaleString('pt-BR')+'" onchange="horaSet(\'pessoas\',this.value)"><div style="'+sub+'">quem calcula/modela projetos</div></div>'+
-      '<div><label style="'+lbl+'">Horas por pessoa/mês</label><input class="search-input" style="'+hInp+'" type="text" inputmode="decimal" value="'+horaCfg.horas.toLocaleString('pt-BR')+'" onchange="horaSet(\'horas\',this.value)"><div style="'+sub+'">ex.: 8h × 21 dias = 168</div></div>'+
+    horaEquipeHtml+
+    '<div style="padding:12px 18px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;align-items:start">'+
       '<div><label style="'+lbl+'">Tempo em projetos (%)</label><input class="search-input" style="'+hInp+'" type="text" inputmode="decimal" value="'+String(Math.round(horaCfg.prod*1000)/10).replace('.',',')+'" onchange="horaSet(\'prod\',this.value)"><div style="'+sub+'">o resto é reunião, revisão, admin</div></div>'+
       '<div><label style="'+lbl+'">Margem de lucro (%)</label><input class="search-input" style="'+hInp+'" type="text" inputmode="decimal" value="'+String(Math.round(horaCfg.margem*1000)/10).replace('.',',')+'" onchange="horaSet(\'margem\',this.value)"><div style="'+sub+'">sobre o preço final</div></div>'+
       '<div><label style="'+lbl+'">Base do custo fixo</label><select class="filter-select" style="'+hInp+'" onchange="horaSet(\'meses\',this.value)">'+
